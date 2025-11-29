@@ -1,0 +1,67 @@
+<!-- Shared header and navigation for all pages -->
+<style>
+    .header-bar {
+        background: #2c3e50;
+        color: #fff;
+        padding: 16px 0 8px 0;
+        text-align: center;
+        font-size: 2em;
+        font-weight: bold;
+        letter-spacing: 1px;
+    }
+
+    .vehicle-name {
+        font-size: 1.1em;
+        color: #f9e79f;
+        margin-top: 4px;
+    }
+
+    .nav-bar {
+        background: #34495e;
+        padding: 8px 0;
+        text-align: center;
+    }
+
+    .nav-bar a {
+        color: #ecf0f1;
+        text-decoration: none;
+        margin: 0 18px;
+        font-size: 1.1em;
+        font-weight: 500;
+        transition: color 0.2s;
+    }
+
+    .nav-bar a:hover {
+        color: #f9e79f;
+    }
+
+    .play-now-btn {
+        display: inline-block;
+        margin: 32px auto 0 auto;
+        padding: 18px 48px;
+        font-size: 1.5em;
+        background: #27ae60;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+        box-shadow: 0 2px 8px rgba(44, 62, 80, 0.1);
+        transition: background 0.2s;
+    }
+
+    .play-now-btn:hover {
+        background: #219150;
+    }
+</style>
+<div class="header-bar">
+    Rokenbok Vehicle Control
+    <div class="vehicle-name">{{ vehicle_name }}</div>
+</div>
+<div class="nav-bar">
+    <a href="/">Go Home</a>
+    <a href="/admin">Admin</a>
+    <a href="/wifi">WiFi</a>
+    <a href="/testing">Testing</a>
+    <a href="/play">Play</a>
+</div>

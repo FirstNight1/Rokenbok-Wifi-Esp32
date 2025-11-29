@@ -1,0 +1,46 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Upload main.py",
+            "type": "shell",
+            "command": "python -m mpremote connect COM10 cp ./main.py :/main.py; python -m mpremote reset",
+            "options": {
+                "cwd": "${workspaceFolder}/RokVehicle"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Upload all files",
+            "type": "shell",
+            "command": "python -m mpremote connect COM10 cp -r . :/; python -m mpremote reset",
+            "options": {
+                "cwd": "${workspaceFolder}/RokVehicle"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Open REPL",
+            "type": "shell",
+            "command": "python -m mpremote connect COM10 repl",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Erase Flash and reflash firmware",
+            "type": "shell",
+            "command": "python -m esptool --port COM9 erase_flash; sleep 10; python -m esptool --chip esp32s3 --port COM9 write_flash -z 0x0 'c:\\Users\\Tim Ehrlich\\Downloads\\ESP32_GENERIC_S3-20251127-v1.27.0-preview.463.g22cff2f6f5.bin'",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Show all files",
+            "type": "shell",
+            "command": "python -m mpremote connect COM10 fs tree",
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}

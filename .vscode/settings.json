@@ -1,0 +1,14 @@
+{
+    "idf.portWin": "COM10",
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ],
+    "python.analysis.extraPaths": [
+        "./lib",
+        "${workspaceFolder}/.venv/Lib/site-packages/micropython_esp32_stubs"
+    ],
+    "editor.formatOnSave": true,
+    // Make mpremote default
+    "pythonTerminal.launchArgs": [],
+    "microPython.replDelay": 100
+}
