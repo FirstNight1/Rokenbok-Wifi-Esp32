@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Rokenbok Wifi Play System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+        }
+
+        .header {
+            background: #2c3e50;
+            color: #fff;
+            padding: 24px 0 12px 0;
+            text-align: center;
+            font-size: 2em;
+            font-weight: bold;
+        }
+
+        .section {
+            max-width: 900px;
+            margin: 32px auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px #0001;
+            padding: 24px;
+        }
+
+        .vehicle-list,
+        .fpv-list {
+            margin: 24px 0;
+        }
+
+        .vehicle-row,
+        .fpv-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .vehicle-row>div,
+        .fpv-row>div {
+            margin-right: 18px;
+        }
+
+        .status-box {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .status-available {
+            background: #4caf50;
+        }
+
+        .status-busy {
+            background: #e53935;
+        }
+
+        .battery-gauge {
+            width: 60px;
+            height: 18px;
+            background: #eee;
+            border-radius: 4px;
+            position: relative;
+            display: inline-block;
+        }
+
+        .battery-gauge-inner {
+            height: 100%;
+            background: #bdbdbd;
+            border-radius: 4px;
+            width: 100%;
+        }
+
+        .select-btn,
+        .admin-btn {
+            padding: 4px 12px;
+            border: none;
+            border-radius: 4px;
+            background: #1976d2;
+            color: #fff;
+            cursor: pointer;
+            margin-left: 8px;
+        }
+
+        .select-btn[disabled] {
+            background: #aaa;
+            cursor: not-allowed;
+        }
+
+        .admin-btn {
+            background: #e53935;
+        }
+
+        .ip-box {
+            font-family: monospace;
+            background: #f9e79f;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">Rokenbok Wifi Play System</div>
+    <div class="section">
+        <div style="margin-bottom:24px;">
+            <details open>
+                <summary style="font-weight:bold;cursor:pointer;">Admin / Settings</summary>
+                <form id="settings_form">
+                    <label>Subnet to scan: <input id="subnet_input" type="text" style="width:120px"
+                            pattern="\d+\.\d+\.\d+" required></label>
+                    <button type="submit">Save</button>
+                </form>
+                <div style="margin-top:12px;">
+                    <label>Known Vehicles:</label>
+                    <div id="known_vehicles_list"></div>
+                    <form id="add_vehicle_form" style="margin-top:8px;">
+                        <input id="vehicle_tag" placeholder="Tag (e.g. loader-123ABC)" required style="width:140px">
+                        <input id="vehicle_ip" placeholder="Vehicle IP" required style="width:110px">
+                        <input id="fpv_ip" placeholder="FPV IP (optional)" style="width:110px">
+                        <button type="submit">Add</button>
+                    </form>
+                </div>
+            </details>
+        </div>
+        <div><b>Client IP Address:</b> <span id="client_ip">Detecting...</span></div>
+        <div style="margin-top:18px;"><b>Area Camera IP:</b> <span id="area_ip">N/A</span></div>
+        <div class="vehicle-list">
+            <h3>Detected Vehicles</h3>
+            <div id="vehicles"></div>
+        </div>
+        <div class="fpv-list">
+            <h3>Detected FPV Streams</h3>
+            <div id="fpvs"></div>
+        </div>
+    </div>
+    <script>
+        // --- Utility: Get client IP (WebRTC STUN hack) ---
+        function getClientIP(cb) {
+            let ip = null;
+            let pc = new RTCPeerConnection({ iceServers: [] });
+            pc.createDataChannel("");
+            pc.createOffer().then(offer => pc.setLocalDescription(offer));
+            pc.onicecandidate = (evt) => {
+                if (!evt || !evt.candidate) return;
+                let parts = evt.candidate.candidate.split(" ");
+                let addr = parts[4];
+                if (addr && addr.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                    ip = addr;
+                    cb(ip);
+                    pc.close();
+                }
+            };
+        }
+
+        // --- Scan subnet for vehicles and FPV streams ---
+        let subnet = null;
+        let areaCameraIP = null;
+        let vehicles = [];
+        let fpvs = [];
+        let scanInProgress = false;
+        let knownVehicles = [];
+
+        function updateUI() {
+            // Vehicles
+            const vDiv = document.getElementById('vehicles');
+            vDiv.innerHTML = '';
+            if (vehicles.length === 0) vDiv.innerHTML = '<i>No vehicles found.</i>';
+            vehicles.forEach(v => {
+                vDiv.innerHTML += `<div class="vehicle-row">
+                <div class="status-box ${v.busy ? 'status-busy' : 'status-available'}"></div>
+                <div><b>${v.type}</b> <span class="ip-box">${v.ip}</span></div>
+                <div>Tag: ${v.tag}</div>
+                <div>Battery: <span class="battery-gauge"><span class="battery-gauge-inner"></span></span> N/A</div>
+                <button class="select-btn" onclick="selectVehicle('${v.tag}')" ${v.busy ? 'disabled' : ''}>Select</button>
+                <button class="admin-btn" onclick="forceDisconnect('${v.tag}')">Force Disconnect</button>
+            </div>`;
+            });
+            // FPV Streams
+            const fDiv = document.getElementById('fpvs');
+            fDiv.innerHTML = '';
+            if (fpvs.length === 0) fDiv.innerHTML = '<i>No FPV streams found.</i>';
+            fpvs.forEach(f => {
+                fDiv.innerHTML += `<div class="fpv-row">
+                <div><b>${f.tag}</b> <span class="ip-box">${f.ip}</span></div>
+            </div>`;
+            });
+            // Area camera
+            document.getElementById('area_ip').textContent = areaCameraIP || 'N/A';
+
+            // Known vehicles admin UI
+            const kvDiv = document.getElementById('known_vehicles_list');
+            kvDiv.innerHTML = '';
+            knownVehicles.forEach((kv, idx) => {
+                kvDiv.innerHTML += `<div style="margin-bottom:4px;">${kv.tag} <span class="ip-box">${kv.ip}</span> FPV: <span class="ip-box">${kv.fpv_ip || 'N/A'}</span> <button onclick="removeKnownVehicle(${idx})">Remove</button></div>`;
+            });
+        }
+
+        function selectVehicle(tag) {
+            // Find vehicle and its FPV
+            const v = vehicles.find(v => v.tag === tag);
+            const fpv = fpvs.find(f => f.tag.startsWith(v.tag));
+            const area = areaCameraIP;
+            // Open system_play.html with query params (use relay, pass tags only)
+            let url = `system_play.html?vehicle_tag=${encodeURIComponent(tag)}`;
+            if (fpv) url += `&fpv_tag=${encodeURIComponent(fpv.tag)}`;
+            if (area) url += `&area_tag=${encodeURIComponent(area)}`;
+            window.open(url, '_blank');
+        }
+
+        function forceDisconnect(tag) {
+            fetch(`/api/${encodeURIComponent(tag)}/admin?force_disconnect=1`).then(() => setTimeout(scanAll, 1000));
+        }
+
+        function scanAll() {
+            if (!subnet) return;
+            scanInProgress = true;
+            vehicles = [];
+            fpvs = [];
+            areaCameraIP = null;
+            // 1. Check known vehicles first
+            knownVehicles.forEach(kv => {
+                fetch(`/api/${encodeURIComponent(kv.tag)}/status`).then(r => r.json()).then(js => {
+                    if (js && js.type && js.tag) {
+                        vehicles.push({ ip: kv.ip, type: js.type, tag: js.tag, busy: js.busy });
+                        updateUI();
+                    }
+                }).catch(() => { });
+                if (kv.fpv_ip) {
+                    fpvs.push({ ip: kv.fpv_ip, tag: kv.tag + '-FPV' });
+                }
+            });
+            // 2. Scan subnet for additional vehicles
+            let ips = [];
+            for (let i = 1; i <= 254; ++i) ips.push(`${subnet}.${i}`);
+            ips.forEach(ip => {
+                fetch(`/api/_scan/status?ip=${ip}`).then(r => r.json()).then(js => {
+                    if (js && js.type && js.tag && !vehicles.some(v => v.tag === js.tag)) {
+                        vehicles.push({ ip, type: js.type, tag: js.tag, busy: js.busy });
+                        updateUI();
+                    }
+                }).catch(() => { });
+                // FPV: /fpv or /stream endpoint
+                fetch(`/api/_scan/fpv?ip=${ip}`).then(r => {
+                    if (r.ok) fpvs.push({ ip, tag: ip + '-FPV' }); updateUI();
+                }).catch(() => {
+                    fetch(`/api/_scan/stream?ip=${ip}`).then(r => {
+                        if (r.ok) fpvs.push({ ip, tag: ip + '-FPV' }); updateUI();
+                    }).catch(() => { });
+                });
+                // Area camera: look for /area
+                fetch(`/api/_scan/area?ip=${ip}`).then(r => {
+                    if (r.ok) areaCameraIP = ip; updateUI();
+                }).catch(() => { });
+            });
+            setTimeout(() => { scanInProgress = false; }, 3000);
+        }
+
+        // --- Known vehicles admin logic ---
+        function saveSettings() {
+            localStorage.setItem('subnet', subnet);
+            localStorage.setItem('knownVehicles', JSON.stringify(knownVehicles));
+        }
+        function loadSettings() {
+            subnet = localStorage.getItem('subnet') || '';
+            knownVehicles = [];
+            try {
+                knownVehicles = JSON.parse(localStorage.getItem('knownVehicles')) || [];
+            } catch (e) { knownVehicles = []; }
+        }
+        function removeKnownVehicle(idx) {
+            knownVehicles.splice(idx, 1);
+            saveSettings();
+            updateUI();
+        }
+        document.getElementById('settings_form').onsubmit = function (e) {
+            e.preventDefault();
+            subnet = document.getElementById('subnet_input').value;
+            saveSettings();
+            scanAll();
+        };
+        document.getElementById('add_vehicle_form').onsubmit = function (e) {
+            e.preventDefault();
+            let tag = document.getElementById('vehicle_tag').value.trim();
+            let ip = document.getElementById('vehicle_ip').value.trim();
+            let fpv_ip = document.getElementById('fpv_ip').value.trim();
+            if (!tag || !ip) return;
+            knownVehicles.push({ tag, ip, fpv_ip });
+            saveSettings();
+            updateUI();
+            document.getElementById('vehicle_tag').value = '';
+            document.getElementById('vehicle_ip').value = '';
+            document.getElementById('fpv_ip').value = '';
+        };
+
+        // --- On load ---
+        loadSettings();
+        document.getElementById('subnet_input').value = subnet;
+        updateUI();
+        getClientIP(function (ip) {
+            document.getElementById('client_ip').textContent = ip;
+            if (!subnet) subnet = ip.split('.').slice(0, 3).join('.');
+            document.getElementById('subnet_input').value = subnet;
+            scanAll();
+            setInterval(() => { if (!scanInProgress) scanAll(); }, 5000);
+        });
+    </script>
+</body>
+
+</html>

@@ -1,11 +1,12 @@
 import ujson as json
 import os
 import random
+import ubinascii
 
 CONFIG_DIR = "variables"
 CONFIG_FILE = "config.json"
 
-DEFAULT_TYPE = "loader"
+DEFAULT_TYPE = "vision"
 
 def random_tag():
     chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -13,9 +14,9 @@ def random_tag():
 
 def default_config():
     return {
-        "vehicleType": DEFAULT_TYPE,
-        "vehicleTag": f"{DEFAULT_TYPE}-{random_tag()}",
-        "vehicleName": None,
+        "deviceType": DEFAULT_TYPE,
+        "deviceTag": f"{DEFAULT_TYPE}-{random_tag()}",
+        "deviceName": None,
         "ssid": None,
         "wifipass": None,
         "ip_mode": "dhcp",
@@ -25,14 +26,8 @@ def default_config():
         "static_dns": "",
         "admin_user": "admin",
         "admin_pass": encrypt_password("admin"),
-        # per-motor minimum duty (u16) mapping by motor name. Values are
-        # duty_u16 (0..65535). If a motor name is missing here, the
-        # MotorController will assume a safe default (40000).
-        "motor_min": {},
     }
 
-# --- Password encryption helpers ---
-import ubinascii
 def encrypt_password(pw):
     key = b"rokadminpw"
     data = pw.encode()
@@ -51,21 +46,14 @@ def check_password(pw, enc):
         return False
 
 def load_config():
-    # Ensure directory exists
     if CONFIG_DIR not in os.listdir():
         os.mkdir(CONFIG_DIR)
-
-    # Check for the config file inside the directory
     files = os.listdir(CONFIG_DIR)
     full_path = f"{CONFIG_DIR}/{CONFIG_FILE}"
-
-    # If file missing, create default and save it
     if CONFIG_FILE not in files:
         cfg = default_config()
         save_config(cfg)
         return cfg
-
-    # Try to load config
     try:
         with open(full_path, "r") as f:
             return json.load(f)
@@ -75,9 +63,7 @@ def load_config():
         save_config(cfg)
         return cfg
 
-
 def save_config(cfg):
     full_path = f"{CONFIG_DIR}/{CONFIG_FILE}"
-
     with open(full_path, "w") as f:
         json.dump(cfg, f)

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Rokenbok System Play</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+        }
+
+        .header {
+            background: #2c3e50;
+            color: #fff;
+            padding: 24px 0 12px 0;
+            text-align: center;
+            font-size: 2em;
+            font-weight: bold;
+        }
+
+        .section {
+            max-width: 900px;
+            margin: 32px auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px #0001;
+            padding: 24px;
+        }
+
+        .video-box {
+            display: flex;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .video-box video {
+            width: 320px;
+            height: 240px;
+            background: #222;
+            border-radius: 8px;
+        }
+
+        .mapping-ui {
+            margin-top: 24px;
+        }
+
+        .select-btn {
+            padding: 4px 12px;
+            border: none;
+            border-radius: 4px;
+            background: #1976d2;
+            color: #fff;
+            cursor: pointer;
+            margin-left: 8px;
+        }
+
+        .select-btn[disabled] {
+            background: #aaa;
+            cursor: not-allowed;
+        }
+
+        .ip-box {
+            font-family: monospace;
+            background: #f9e79f;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">Rokenbok System Play</div>
+    <div class="section">
+        <div id="kick_msg" style="display:none;color:#e53935;font-size:1.2em;margin-bottom:18px;"></div>
+        <div class="video-box">
+            <div>
+                <div><b>Area Camera</b> <span id="area_ip" class="ip-box"></span></div>
+                <video id="area_video" controls autoplay></video>
+            </div>
+            <div>
+                <div><b>FPV Camera</b> <span id="fpv_ip" class="ip-box"></span></div>
+                <video id="fpv_video" controls autoplay></video>
+            </div>
+        </div>
+        <div>
+            <b>Drive Mode:</b>
+            <select id="drive_mode">
+                <option value="tank">Tank</option>
+                <option value="dpad">D-Pad</option>
+            </select>
+        </div>
+        <div class="mapping-ui" id="mapping_ui"></div>
+    </div>
+    <script>
+        // --- Parse query params ---
+        function getParam(name) {
+            let url = new URL(window.location.href);
+            return url.searchParams.get(name);
+        }
+        // --- Use relay for all comms ---
+        const relay = localStorage.getItem('relay_url') || window.location.origin;
+        const vehicle_tag = getParam('vehicle_tag');
+        const fpv_tag = getParam('fpv_tag');
+        const area_tag = getParam('area_tag');
+        document.getElementById('area_ip').textContent = area_tag || 'N/A';
+        document.getElementById('fpv_ip').textContent = fpv_tag || 'N/A';
+        // Video streams via relay proxy
+        if (area_tag) document.getElementById('area_video').src = `${relay}/api/${area_tag}/stream`;
+        if (fpv_tag) document.getElementById('fpv_video').src = `${relay}/api/${fpv_tag}/stream`;
+
+        // --- Drive mode and mapping UI ---
+        let driveMode = 'tank';
+        let mapping = { tank_left_axis: 0, tank_right_axis: 1, tank_left_rev: false, tank_right_rev: false, tank_left_dead: 0.1, tank_right_dead: 0.1 };
+        function renderMappingUI() {
+            const ui = document.getElementById('mapping_ui');
+            let html = '';
+            if (driveMode === 'tank') {
+                html += `<h3>Tank Drive Mapping</h3>`;
+                html += `<div>Left Motor: <select id="tank_left_axis"></select> Reverse <input type="checkbox" id="tank_left_rev"> Dead Zone <input type="number" id="tank_left_dead" min="0" max="0.5" step="0.01" style="width:50px"></div>`;
+                html += `<div>Right Motor: <select id="tank_right_axis"></select> Reverse <input type="checkbox" id="tank_right_rev"> Dead Zone <input type="number" id="tank_right_dead" min="0" max="0.5" step="0.01" style="width:50px"></div>`;
+            } else {
+                html += `<h3>D-Pad Mapping</h3>`;
+                html += `<div>D-Pad Up: <select id="dpad_up"></select></div>`;
+                html += `<div>D-Pad Down: <select id="dpad_down"></select></div>`;
+                html += `<div>D-Pad Left: <select id="dpad_left"></select></div>`;
+                html += `<div>D-Pad Right: <select id="dpad_right"></select></div>`;
+            }
+            ui.innerHTML = html;
+            // Populate selects
+            if (driveMode === 'tank') {
+                let axes = [0, 1, 2, 3].map(a => `<option value="${a}">Axis ${a + 1}</option>`).join('');
+                document.getElementById('tank_left_axis').innerHTML = axes;
+                document.getElementById('tank_right_axis').innerHTML = axes;
+                document.getElementById('tank_left_axis').value = mapping.tank_left_axis || 0;
+                document.getElementById('tank_left_rev').checked = !!mapping.tank_left_rev;
+                document.getElementById('tank_left_dead').value = mapping.tank_left_dead || 0.1;
+                document.getElementById('tank_right_axis').value = mapping.tank_right_axis || 1;
+                document.getElementById('tank_right_rev').checked = !!mapping.tank_right_rev;
+                document.getElementById('tank_right_dead').value = mapping.tank_right_dead || 0.1;
+            } else {
+                let opts = ['both', 'left', 'right'].map(o => `<option value="${o}">${o}</option>`).join('');
+                ['up', 'down', 'left', 'right'].forEach(dir => {
+                    document.getElementById(`dpad_${dir}`).innerHTML = opts;
+                    document.getElementById(`dpad_${dir}`).value = mapping[`dpad_${dir}`] || 'both';
+                });
+            }
+            // Wire up events
+            if (driveMode === 'tank') {
+                document.getElementById('tank_left_axis').onchange = e => { mapping.tank_left_axis = parseInt(e.target.value); };
+                document.getElementById('tank_left_rev').onchange = e => { mapping.tank_left_rev = e.target.checked; };
+                document.getElementById('tank_left_dead').onchange = e => { mapping.tank_left_dead = parseFloat(e.target.value); };
+                document.getElementById('tank_right_axis').onchange = e => { mapping.tank_right_axis = parseInt(e.target.value); };
+                document.getElementById('tank_right_rev').onchange = e => { mapping.tank_right_rev = e.target.checked; };
+                document.getElementById('tank_right_dead').onchange = e => { mapping.tank_right_dead = parseFloat(e.target.value); };
+            } else {
+                ['up', 'down', 'left', 'right'].forEach(dir => {
+                    document.getElementById(`dpad_${dir}`).onchange = e => { mapping[`dpad_${dir}`] = e.target.value; };
+                });
+            }
+        }
+        document.getElementById('drive_mode').onchange = e => { driveMode = e.target.value; renderMappingUI(); };
+        renderMappingUI();
+
+        // --- Inactivity kick system ---
+        let inactivityTimeoutMin = parseInt(localStorage.getItem('inactivity_timeout')) || 2;
+        let inactivityTimeoutMs = inactivityTimeoutMin * 60 * 1000;
+        let lastInput = Date.now();
+        let kicked = false;
+
+        // --- WebSocket control logic ---
+        let ws = null;
+        let wsOpen = false;
+        function connectWS() {
+            if (!vehicle_tag) return;
+            // Use relay WebSocket endpoint
+            let wsProto = (relay.startsWith('https') ? 'wss' : 'ws');
+            let relayHost = relay.replace(/^https?:\/\//, '');
+            ws = new WebSocket(`${wsProto}://${relayHost}/ws/${vehicle_tag}`);
+            ws.onopen = () => { wsOpen = true; };
+            ws.onclose = () => { wsOpen = false; };
+            ws.onerror = () => { wsOpen = false; };
+        }
+        connectWS();
+        window.onbeforeunload = function () {
+            if (ws && wsOpen) ws.close();
+        };
+
+        // --- Gamepad polling and control ---
+        setInterval(() => {
+            if (kicked) return;
+            if (!wsOpen) return;
+            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+            if (!gamepads[0]) return;
+            const gp = gamepads[0];
+            let left = 0, right = 0;
+            let active = false;
+            if (driveMode === 'tank') {
+                left = gp.axes[mapping.tank_left_axis] || 0;
+                right = gp.axes[mapping.tank_right_axis] || 0;
+                if (mapping.tank_left_rev) left = -left;
+                if (mapping.tank_right_rev) right = -right;
+                if (Math.abs(left) < (mapping.tank_left_dead || 0.1)) left = 0;
+                if (Math.abs(right) < (mapping.tank_right_dead || 0.1)) right = 0;
+                ws.send(JSON.stringify({ action: 'set', name: 'left', dir: left >= 0 ? 'fwd' : 'rev', power: Math.abs(left) }));
+                ws.send(JSON.stringify({ action: 'set', name: 'right', dir: right >= 0 ? 'fwd' : 'rev', power: Math.abs(right) }));
+                if (left !== 0 || right !== 0) active = true;
+            } else {
+                // D-Pad mode: TODO
+            }
+            // Any button pressed?
+            if (gp.buttons && gp.buttons.some(b => b.pressed)) active = true;
+            if (active) lastInput = Date.now();
+        }, 100);
+
+        // --- Inactivity check ---
+        setInterval(() => {
+            if (kicked) return;
+            if (Date.now() - lastInput > inactivityTimeoutMs) {
+                kicked = true;
+                document.getElementById('kick_msg').style.display = '';
+                document.getElementById('kick_msg').textContent = `Kicked for inactivity (${inactivityTimeoutMin} min timeout)`;
+                if (ws && wsOpen) ws.close();
+                setTimeout(() => { window.close(); }, 3000);
+            }
+        }, 1000);
+    </script>
+</body>
+
+</html>

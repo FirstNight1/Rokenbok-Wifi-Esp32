@@ -1,9 +1,18 @@
 # control/motor_controller.py
 
+
 import time
 from machine import Pin, PWM
 from variables.vars_store import load_config, save_config
 from variables.vehicle_types import VEHICLE_TYPES
+try:
+    from control.power_manager import power_manager
+except Exception:
+    power_manager = None
+try:
+    from control.function_controller import FunctionController
+except Exception:
+    FunctionController = None
 
 PWM_FREQ = 2000
 MAX_DUTY = 65535
@@ -62,62 +71,104 @@ class Motor:
         self.last_update_ms = time.ticks_ms()
 
 
+
 class MotorController:
     def __init__(self):
         cfg = load_config()
         vtype = cfg.get("vehicleType")
-
         vinfo = next((v for v in VEHICLE_TYPES if v["typeName"] == vtype), None)
         if not vinfo:
             raise ValueError("Vehicle type not found")
 
-        mapping = vinfo.get("motor_map", {})   # FIXED
+        # Axis motors (continuous, axis-assignable)
+        self.axis_motors = {}
+        for idx, name in enumerate(vinfo.get("axis_motors", [])):
+            # Assign motor numbers 1,2 for axis motors by default
+            self.axis_motors[name] = Motor(name, idx+1)
 
-        self.motors = {
-            name: Motor(name, info["motor"], info.get("reversed", False))
-            for name, info in mapping.items()
-        }
+        # Motor functions (button-assignable, fwd/rev, on/off)
+        self.motor_functions = {}
+        for idx, name in enumerate(vinfo.get("motor_functions", [])):
+            # Assign motor numbers 3,4... for motor functions by default
+            self.motor_functions[name] = Motor(name, idx+3)
+
+        # Logic functions (on/off pins, e.g., lights, siren)
+        self.functions = {}
+        if FunctionController and vinfo.get("functions"):
+            # Assign pins 10+ for logic functions (customize as needed)
+            pin_map = {fname: 10+idx for idx, fname in enumerate(vinfo["functions"])}
+            self.function_controller = FunctionController(pin_map)
+            self.functions = {fname: False for fname in vinfo["functions"]}
+        else:
+            self.function_controller = None
 
         # Load per-motor min power values from config (if present)
         motor_min_cfg = cfg.get("motor_min", {})
-        for name, m in self.motors.items():
-            # Use stored value or default 40000
+        for name, m in {**self.axis_motors, **self.motor_functions}.items():
             try:
                 m.min_power = int(motor_min_cfg.get(name, 40000))
             except Exception:
                 m.min_power = 40000
 
-        # watchdog timeout (ms)
-        self.timeout_ms = 200   # motors must receive update every 200ms
-
-        # NOTE: previously a hardware Timer IRQ called back into Python and
-        # manipulated PWM objects from interrupt context. That can crash the
-        # MicroPython runtime (and USB REPL). Instead we provide an asyncio-
-        # friendly watchdog coroutine `watchdog()` which should be scheduled
-        # on the async loop so all PWM calls happen in the same thread.
+        self.timeout_ms = 200
 
     # --------------------
     # Public API
     # --------------------
 
-    def set_motor(self, name, direction, power):
-        m = self.motors.get(name)
+    def set_axis(self, name, value):
+        # value: -1..1 (float), mapped to direction/power
+        m = self.axis_motors.get(name)
         if not m:
-            return  # ignore invalid names
+            return
+        direction = "fwd" if value >= 0 else "rev"
+        power = abs(value)
         m.set_output(direction, power)
 
-    def stop_motor(self, name):
-        m = self.motors.get(name)
+    def set_motor_function(self, name, direction, on):
+        # direction: "fwd" or "rev", on: True/False (button press)
+        m = self.motor_functions.get(name)
+        if not m:
+            return
+        power = 1.0 if on else 0.0
+        m.set_output(direction, power)
+
+    def set_function(self, name, value):
+        # value: True/False (on/off)
+        if self.function_controller:
+            self.function_controller.set_function(name, value)
+            self.functions[name] = value
+
+    def stop_axis(self, name):
+        m = self.axis_motors.get(name)
+        if m:
+            m.stop()
+
+    def stop_motor_function(self, name):
+        m = self.motor_functions.get(name)
         if m:
             m.stop()
 
     def stop_all(self):
-        for m in self.motors.values():
+        for m in list(self.axis_motors.values()) + list(self.motor_functions.values()):
             m.stop()
+        if self.function_controller:
+            for fname in self.functions:
+                self.function_controller.set_function(fname, False)
+
+    def update_min_power(self, name, min_value):
+        # ...existing code...
+
+    # --------------------
+    # Public API
+    # --------------------
+
+    # (Obsolete set_motor, stop_motor, stop_all removed; use set_axis, set_motor_function, set_function, stop_axis, stop_motor_function, stop_all)
 
     def update_min_power(self, name, min_value):
         """Update the minimum duty for a named motor and persist in config."""
-        if name not in self.motors:
+        all_motors = {**self.axis_motors, **self.motor_functions}
+        if name not in all_motors:
             return False
 
         try:
@@ -129,7 +180,7 @@ class MotorController:
         min_val = max(0, min(MAX_DUTY - 1, min_val))
 
         # update instance
-        self.motors[name].min_power = min_val
+        all_motors[name].min_power = min_val
 
         # persist to config
         cfg = load_config()
@@ -139,7 +190,6 @@ class MotorController:
         try:
             save_config(cfg)
         except Exception:
-            # best-effort: ignore save errors
             pass
 
         return True
@@ -147,6 +197,7 @@ class MotorController:
     # --------------------
     # Watchdog (Timer IRQ)
     # --------------------
+
 
     async def watchdog(self):
         """Async watchdog task; periodically checks motors and stops any that
@@ -162,22 +213,22 @@ class MotorController:
             except Exception:
                 return
 
-        # check interval: smaller than timeout to ensure timely stop
         interval = min(0.1, self.timeout_ms / 1000.0)
         while True:
             now = time.ticks_ms()
-            for m in self.motors.values():
+            for m in list(self.axis_motors.values()) + list(self.motor_functions.values()):
                 if m.running:
                     try:
                         if time.ticks_diff(now, m.last_update_ms) > self.timeout_ms:
                             m.stop()
                     except Exception:
-                        # best-effort: ignore errors per motor
                         pass
             try:
                 await asyncio.sleep(interval)
             except Exception:
-                # if sleep fails, break out
                 break
 
 motor_controller = MotorController()
+# On startup, if not asleep, ensure D8 is high
+if power_manager and not power_manager.is_asleep():
+    power_manager.wake()
