@@ -22,47 +22,32 @@ def get_ip_address():
 def render_home_page():
     """Generate HTML for the home page."""
 
+    print("[DEBUG] Entered render_home_page")
     ip = get_ip_address()
+    print("[DEBUG] Got IP:", ip)
     # Load header/nav HTML and inject vehicle_name (placeholder, will update via JS)
     try:
+        print("[DEBUG] Opening header_nav.html")
         with open("web/pages/assets/header_nav.html", "r") as f:
             header_nav = f.read().replace("{{ vehicle_name }}", "Loading...")
-    except Exception:
+        print("[DEBUG] Loaded header_nav.html")
+    except Exception as e:
+        print("[ERROR] Failed to load header_nav.html:", e)
         header_nav = "<div style='background:#222;color:#fff;padding:12px;text-align:center'>Rokenbok Vehicle Control<br><span style='color:#f9e79f'>Loading...</span></div>"
 
-    return (
-        f"""
-<html>
-<body>
-{header_nav}
-<div style='max-width:600px;margin:32px auto 0 auto;text-align:center;'>
-    <p><b>Vehicle Name:</b> <span id='vehicle_name'>Loading...</span></p>
-    <p><b>Vehicle Type:</b> <span id='vehicle_type'>Loading...</span></p>
-    <p><b>Vehicle Tag:</b> <span id='vehicle_tag'>Loading...</span></p>
-    <p><b>Busy Status:</b> <span id='vehicle_busy'>Loading...</span></p>
-    <p><b>Battery Level:</b> <span id='vehicle_battery'>N/A</span></p>
-    <p><b>MCU Temp:</b> <span id='mcu_temp'>N/A</span> &deg;C</p>
-    <p><b>IP Address:</b> {ip}</p>
-    <button class='play-now-btn' onclick=\"window.location='/play'\">Play Now</button>
-</div>
-<script>
-fetch('/status').then(r => r.json()).then(js => {
-    document.getElementById('vehicle_name').textContent = js.vehicleName || 'Unnamed Vehicle';
-    document.getElementById('vehicle_type').textContent = js.type || 'Unknown';
-    document.getElementById('vehicle_tag').textContent = js.tag || 'N/A';
-    document.getElementById('vehicle_busy').textContent = js.busy ? 'In Use' : 'Available';
-    document.getElementById('vehicle_battery').textContent = js.battery !== undefined && js.battery !== null ? js.battery : 'N/A';
-    // MCU temp
-    document.getElementById('mcu_temp').textContent = (js.mcu_temp !== undefined && js.mcu_temp !== null) ? js.mcu_temp.toFixed(1) : 'N/A';
-    // Update header nav name if present
-    var navs = document.getElementsByClassName('vehicle-name');
-    if (navs.length > 0) navs[0].textContent = js.vehicleName || 'Unnamed Vehicle';
-});
-</script>
-</body>
-</html>
-        """
-    )
+    try:
+        print("[DEBUG] Opening home_page.html")
+        with open("web/pages/assets/home_page.html", "r") as f:
+            html = f.read()
+        print("[DEBUG] Loaded home_page.html")
+    except Exception as e:
+        print("[ERROR] Failed to load home_page.html:", e)
+        html = "<html><body><h2>Home page asset missing</h2></body></html>"
+
+    html = html.replace("{{ header_nav }}", header_nav)
+    html = html.replace("{{ ip }}", ip)
+    print("[DEBUG] Returning home page HTML")
+    return html
 
 
 def handle_get():

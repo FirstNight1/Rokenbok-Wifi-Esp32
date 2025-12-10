@@ -1,0 +1,20 @@
+<html>
+
+<body>
+    {{ header_nav }}
+    <div style='max-width:600px;margin:32px auto 0 auto;'>
+        <h2>Admin Settings</h2>
+        <form method="POST" action="/admin">
+            <label>Vehicle Type:</label><br>
+            <select name="vehicleType">{{ type_options }}</select><br><br>
+            <label>Vehicle Tag:</label><br>
+            <input name="vehicleTag" value="{{ vehicle_tag }}"><br><br>
+            <label>Vehicle Name:</label><br>
+            <input name="vehicleName" value="{{ vehicle_name }}"><br><br>
+            <button type="submit" name="save" value="1">Save</button>
+            <button type="submit" name="cancel" value="1">Cancel</button>
+        </form>
+    </div>
+</body>
+
+</html>

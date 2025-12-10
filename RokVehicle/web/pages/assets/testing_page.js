@@ -43,7 +43,7 @@ function initWS() {
     try {
         ws = new WebSocket('ws://' + location.host + '/ws');
         ws.onopen = function () { console.log('WS open'); setWSStatus(true); };
-        ws.onclose = function () { console.log('WS closed'); setWSStatus(false); setTimeout(initWS, 1000); };
+    ws.onclose = function () { console.log('WS closed'); setWSStatus(false); setTimeout(initWS, 5000); };
         ws.onerror = function (e) { console.log('WS error', e); setWSStatus(false); };
         ws.onmessage = function (m) {
             try {

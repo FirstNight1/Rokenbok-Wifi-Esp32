@@ -1,29 +1,23 @@
 
-import uasyncio as asyncio
-from variables.vars_store import load_config
-from web.pages import wifi_page, admin_page, home_page, testing_page
-try:
-    from control.power_manager import power_manager
-except Exception:
-    power_manager = None
 
-import ubinascii
+import uasyncio as asyncio
+from web.pages import wifi_page, admin_page, home_page, testing_page
+from variables.vars_store import load_config
+
+
 import os
+import hashlib
 try:
-    import hashlib
-except Exception:
-    try:
-        import uhashlib as hashlib
-    except Exception:
-        hashlib = None
+    import esp32
+except ImportError:
+    esp32 = None
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
-# Only one controlling websocket client at a time
-WS_CLIENTS = []
-BUSY_CLIENT = None  # (writer, reader)
-BUSY_FORCE_DISCONNECT = False
+
+WS_CLIENT = None  # Only one controlling websocket client
+BUSY_FORCE_DISCONNECT = False  # Only one busy flag
 
 ROUTES = {
     "/": home_page,
@@ -35,29 +29,6 @@ ROUTES = {
 
 async def handle_client(reader, writer):
     try:
-        # If asleep, only allow wake via /admin POST
-        if power_manager and power_manager.is_asleep():
-            # Only allow POST to /admin to wake
-            req_line = await reader.readline()
-            if not req_line:
-                await writer.aclose()
-                return
-            line = req_line.decode().strip()
-            parts = line.split()
-            if len(parts) < 2:
-                await writer.aclose()
-                return
-            method = parts[0]
-            full_path = parts[1]
-            if method == 'POST' and full_path.startswith('/admin'):
-                # allow admin POST to wake
-                pass
-            else:
-                # respond with 503 Service Unavailable
-                writer.write("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nVehicle is asleep. Use admin page to wake.")
-                await writer.drain()
-                await writer.aclose()
-                return
 
         # --- Read request line ---
         req_line = await reader.readline()
@@ -108,100 +79,11 @@ async def handle_client(reader, writer):
                         if '=' in c:
                             ck, cv = c.strip().split('=',1)
                             cookies[ck.strip()] = cv.strip()
-        # --- Auth check for protected pages ---
-        protected = path in ('/admin', '/wifi', '/testing')
-        from variables.vars_store import load_config, check_password, encrypt_password, save_config
-        session_ok = False
-        session_token = cookies.get('session','')
-        cfg = load_config()
-        # Session token is just admin_user + enc_pass hashed (not secure, but simple)
-        import hashlib
-        def make_token(user, enc):
-            return hashlib.sha1((user+enc).encode()).hexdigest()
-        if session_token and session_token == make_token(cfg.get('admin_user','admin'), cfg.get('admin_pass','')):
-            session_ok = True
-        # Track failed logins
-        failfile = '/variables/admin_fails.txt'
-        fails = 0
-        try:
-            with open(failfile,'r') as f:
-                fails = int(f.read().strip())
-        except Exception:
-            fails = 0
-        # If protected and not logged in, show login form
-        if protected and not session_ok:
-            if method == 'POST':
-                # Read up to 1024 bytes (safe for ESP32)
-                body = await reader.read(1024)
-                body = body.decode()
-                # Parse POST fields
-                fields = {}
-                for pair in body.split('&'):
-                    if '=' in pair:
-                        k, v = pair.split('=', 1)
-                        fields[k] = v.replace('+', ' ')
-                user = fields.get('user','').strip()
-                pw = fields.get('pw','').strip()
-                # Sanitize
-                import re
-                user = re.sub(r'[^a-zA-Z0-9_\-]','',user)[:32]
-                pw = pw[:64]
-                if user == cfg.get('admin_user','admin') and check_password(pw, cfg.get('admin_pass','')):
-                    # Success
-                    session = make_token(user, cfg.get('admin_pass',''))
-                    writer.write("HTTP/1.1 303 See Other\r\nSet-Cookie: session="+session+"; Path=/; HttpOnly\r\nLocation: "+path+"\r\n\r\n")
-                    with open(failfile,'w') as f: f.write('0')
-                    await writer.drain()
-                    await writer.aclose()
-                    return
-                else:
-                    fails += 1
-                    with open(failfile,'w') as f: f.write(str(fails))
-                    if fails >= 10:
-                        # Reset admin, clear wifi, set DHCP
-                        cfg['admin_user'] = 'admin'
-                        cfg['admin_pass'] = encrypt_password('admin')
-                        cfg['ssid'] = None
-                        cfg['wifipass'] = None
-                        cfg['ip_mode'] = 'dhcp'
-                        save_config(cfg)
-                        with open(failfile,'w') as f: f.write('0')
-                        msg = "<p style='color:red'>Too many failed attempts. Admin and WiFi reset to defaults. Please login with admin/admin.</p>"
-                    elif fails >= 5:
-                        msg = "<p style='color:red'>Too many failed attempts. Connect via USB-C and run:<br><code>import variables.vars_store as v; c=v.load_config(); c['admin_user']='admin'; c['admin_pass']=v.encrypt_password('admin'); v.save_config(c)</code><br>Then reboot the board.</p>"
-                    else:
-                        msg = "<p style='color:red'>Login failed. Attempts: {}/10</p>".format(fails)
-                    # Show login form again
-                    writer.write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n")
-                    writer.write(f"""
-<html><body><h2>Admin Login</h2>{msg}
-<form method='POST'>
-Username: <input name='user' maxlength='32'><br>
-Password: <input name='pw' type='password' maxlength='64'><br>
-<input type='submit' value='Login'>
-</form></body></html>
-""")
-                    await writer.drain()
-                    await writer.aclose()
-                    return
-            # GET: show login form
-            writer.write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n")
-            writer.write("""
-<html><body><h2>Admin Login</h2>
-<form method='POST'>
-Username: <input name='user' maxlength='32'><br>
-Password: <input name='pw' type='password' maxlength='64'><br>
-<input type='submit' value='Login'>
-</form></body></html>
-""")
-            await writer.drain()
-            await writer.aclose()
-            return
 
         # If this is a WebSocket upgrade, handle it here (path /ws)
         if headers.get('upgrade') == 'websocket' and hashlib and 'sec-websocket-key' in headers:
             # only allow upgrade on a dedicated path
-            if path in ('/ws', '/testing_ws'):
+            if path.startswith('/ws'):
                 await _handle_websocket(reader, writer, headers, path)
                 return
 
@@ -236,11 +118,7 @@ Password: <input name='pw' type='password' maxlength='64'><br>
 
                 # include content-length and cache-control
                 clen = len(data)
-                # For testing_page.js, disable caching for development
-                if sub == 'testing_page.js':
-                    cache_hdr = 'Cache-Control: no-store'
-                else:
-                    cache_hdr = 'Cache-Control: public, max-age=86400'
+                cache_hdr = 'Cache-Control: no-store'
                 writer.write(f"HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {clen}\r\n{cache_hdr}\r\n\r\n")
                 # write raw bytes
                 try:
@@ -271,30 +149,28 @@ Password: <input name='pw' type='password' maxlength='64'><br>
 
         # --- /status endpoint ---
         if path == '/status':
-            cfg = load_config()
-            # busy if BUSY_CLIENT is not None
-            busy = BUSY_CLIENT is not None
-            # type, tag, vehicleName, battery (N/A)
-            vtype = cfg.get('vehicleType')
-            tag = cfg.get('vehicleTag')
-            vname = cfg.get('vehicleName')
-            # MCU temperature (Celsius)
+            # busy if vehicle is being controlled
+            busy = bool(WS_CLIENT)
             try:
-                import esp32
-                mcu_temp = esp32.mcu_temperature()
-                if hasattr(mcu_temp, 'to_int'):
-                    mcu_temp = float(mcu_temp)
+                cfg = load_config()
             except Exception:
-                mcu_temp = None
+                cfg = {}
+            # Read MCU temperature if possible
+            mcu_temp = None
+            if esp32 and hasattr(esp32, 'mcu_temperature'):
+                try:
+                    mcu_temp = esp32.mcu_temperature()
+                except Exception:
+                    mcu_temp = None
             resp = {
-                'type': vtype,
-                'tag': tag,
-                'vehicleName': vname,
+                'type': cfg.get('vehicleType', 'Unknown'),
+                'tag': cfg.get('vehicleTag', 'N/A'),
+                'vehicleName': cfg.get('vehicleName', 'Unnamed Vehicle'),
                 'busy': busy,
                 'battery': None,
                 'mcu_temp': mcu_temp
             }
-            import ujson as json
+            import json
             writer.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps(resp))
             await writer.drain()
             await writer.aclose()
@@ -311,40 +187,37 @@ Password: <input name='pw' type='password' maxlength='64'><br>
             return
 
 
-        # ----------- GET -----------
-        if method == "GET":
-            # Pass query_string to handler if supported
-            try:
-                status, ctype, html = page.handle_get(query_string)
-            except TypeError:
-                status, ctype, html = page.handle_get()
-            writer.write(f"HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\n\r\n")
-            writer.write(html)
-            await writer.drain()
-            await writer.aclose()
-            return
 
-        # ----------- POST -----------
-        if method == "POST":
-            # Read up to 1024 bytes (safe for ESP32)
-            body = await reader.read(1024)
-            body = body.decode()
-
-            cfg = load_config()
-            new_cfg, redirect = page.handle_post(body, cfg)
-
-            # If waking, call power_manager.wake()
-            if power_manager and 'wake' in body:
-                power_manager.wake()
-
-            writer.write(f"HTTP/1.1 303 See Other\r\nLocation: {redirect}\r\n\r\n")
-            await writer.drain()
-            await writer.aclose()
-            return
-
-        # Mark activity for auto-sleep
-        if power_manager and not power_manager.is_asleep():
-            power_manager.mark_active()
+        # ----------- GET/POST -----------
+        # Route to correct page handler
+        page = ROUTES.get(path)
+        if page:
+            if method == "GET":
+                try:
+                    status, ctype, html = page.handle_get(query_string)
+                except TypeError:
+                    status, ctype, html = page.handle_get()
+                writer.write(f"HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\n\r\n")
+                writer.write(html)
+                await writer.drain()
+                await writer.aclose()
+                return
+            elif method == "POST":
+                # Read POST body
+                content_length = int(headers.get('content-length', 0))
+                body = await reader.read(content_length) if content_length else b''
+                body = body.decode() if isinstance(body, bytes) else body
+                # Load config for POST handler
+                cfg = None
+                try:
+                    cfg = load_config()
+                except Exception:
+                    pass
+                new_cfg, redirect = page.handle_post(body, cfg)
+                writer.write(f"HTTP/1.1 303 See Other\r\nLocation: {redirect}\r\n\r\n")
+                await writer.drain()
+                await writer.aclose()
+                return
     except Exception as e:
         print("Async Web Server Error:", e)
 
@@ -417,6 +290,7 @@ async def _handle_websocket(reader, writer, headers, path):
     try:
         sha = hashlib.sha1()
         sha.update((key + WS_GUID).encode())
+        import ubinascii
         accept = ubinascii.b2a_base64(sha.digest()).decode().strip()
     except Exception as e:
         print('WebSocket handshake failed:', e)
@@ -437,20 +311,18 @@ async def _handle_websocket(reader, writer, headers, path):
 
     print('WebSocket connection established', path)
 
-    global BUSY_CLIENT, BUSY_FORCE_DISCONNECT
+
     # Only allow one controlling client at a time
-    if BUSY_CLIENT is not None:
-        # Already busy
+    global WS_CLIENT, BUSY_FORCE_DISCONNECT
+    if WS_CLIENT:
         await _ws_send_text(writer, '{"error":"Vehicle is busy"}')
         await writer.aclose()
         return
-    BUSY_CLIENT = (writer, reader)
-    try:
-        WS_CLIENTS.append(writer)
-    except Exception:
-        pass
+    WS_CLIENT = (writer, reader)
+    BUSY_FORCE_DISCONNECT = False
 
     # websocket message loop
+
     try:
         import control.motor_controller as mc
     except Exception:
@@ -484,11 +356,7 @@ async def _handle_websocket(reader, writer, headers, path):
                 continue
 
             # parse JSON command
-            try:
-                import ujson as json
-            except Exception:
-                import json
-
+            import json
             try:
                 pkt = json.loads(text)
             except Exception:
@@ -496,6 +364,7 @@ async def _handle_websocket(reader, writer, headers, path):
 
             if not pkt or not isinstance(pkt, dict):
                 continue
+
 
             # dispatch commands (set/stop/stop_all)
             action = pkt.get('action')
@@ -506,42 +375,8 @@ async def _handle_websocket(reader, writer, headers, path):
                 mc.motor_controller.set_motor(name, dir, power)
             elif mc and action == 'stop':
                 mc.motor_controller.stop_motor(pkt.get('name'))
-                # broadcast stop to other websocket clients so they can cancel local timers
-                try:
-                    try:
-                        import ujson as _j
-                    except Exception:
-                        import json as _j
-                    msg = _j.dumps({ 'action': 'stop', 'name': pkt.get('name') })
-                    for w in list(WS_CLIENTS):
-                        try:
-                            await _ws_send_text(w, msg)
-                        except Exception:
-                            try:
-                                WS_CLIENTS.remove(w)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
             elif mc and action == 'stop_all':
                 mc.motor_controller.stop_all()
-                # broadcast stop_all to other websocket clients so they can cancel local timers
-                try:
-                    try:
-                        import ujson as _j
-                    except Exception:
-                        import json as _j
-                    msg = _j.dumps({ 'action': 'stop_all' })
-                    for w in list(WS_CLIENTS):
-                        try:
-                            await _ws_send_text(w, msg)
-                        except Exception:
-                            try:
-                                WS_CLIENTS.remove(w)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
 
         except Exception as e:
             print('WebSocket loop error:', e)
@@ -551,14 +386,8 @@ async def _handle_websocket(reader, writer, headers, path):
         await writer.aclose()
     except Exception:
         pass
-    # unregister writer
-    try:
-        if writer in WS_CLIENTS:
-            WS_CLIENTS.remove(writer)
-    except Exception:
-        pass
-    global BUSY_CLIENT
-    BUSY_CLIENT = None
+    # unregister client
+    WS_CLIENT = None
 
 
 async def _keep_alive():
@@ -610,14 +439,6 @@ def run():
     except Exception:
         pass
 
-    # Auto-sleep task
-    if power_manager:
-        async def auto_sleep_task():
-            while True:
-                if power_manager.should_sleep():
-                    power_manager.shutdown()
-                await asyncio.sleep(1)
-        loop.create_task(auto_sleep_task())
 
     print("Web server background tasks scheduled.")
     loop.run_forever()

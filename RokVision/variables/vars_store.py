@@ -24,26 +24,8 @@ def default_config():
         "static_mask": "",
         "static_gw": "",
         "static_dns": "",
-        "admin_user": "admin",
-        "admin_pass": encrypt_password("admin"),
     }
 
-def encrypt_password(pw):
-    key = b"rokadminpw"
-    data = pw.encode()
-    key = (key * ((len(data) // len(key)) + 1))[:len(data)]
-    enc = bytes([a ^ b for a, b in zip(data, key)])
-    return ubinascii.b2a_base64(enc).decode().strip()
-
-def check_password(pw, enc):
-    key = b"rokadminpw"
-    try:
-        enc_bytes = ubinascii.a2b_base64(enc)
-        key = (key * ((len(enc_bytes) // len(key)) + 1))[:len(enc_bytes)]
-        dec = bytes([a ^ b for a, b in zip(enc_bytes, key)]).decode()
-        return pw == dec
-    except Exception:
-        return False
 
 def load_config():
     if CONFIG_DIR not in os.listdir():

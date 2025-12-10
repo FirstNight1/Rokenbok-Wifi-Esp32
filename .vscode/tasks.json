@@ -41,6 +41,13 @@
             "command": "python -m mpremote connect COM10 fs tree",
             "group": "build",
             "problemMatcher": []
+        },
+        {
+            "label": "Remove all files from board",
+            "type": "shell",
+            "command": "python -m mpremote connect COM10 rm -r :/",
+            "group": "build",
+            "problemMatcher": []
         }
     ]
 }

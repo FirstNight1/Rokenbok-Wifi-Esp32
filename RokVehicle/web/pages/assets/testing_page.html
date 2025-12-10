@@ -1,0 +1,50 @@
+<html>
+
+<head>
+    <title>Motor Testing</title>
+    <style>
+        body {
+            font-family: Arial;
+            margin: 20px;
+        }
+
+        .motor-block {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+        }
+
+        button {
+            margin: 4px;
+            padding: 8px 14px;
+        }
+
+        #stopAll {
+            background-color: red;
+            color: white;
+            padding: 12px 22px;
+            font-size: 16px;
+        }
+    </style>
+    <script src="/assets/testing_page.js"></script>
+</head>
+
+<body>
+    {{ header_nav }}
+    <div style='max-width:700px;margin:32px auto 0 auto;'>
+        <h2>Motor Testing</h2>
+        <h3>Current Vehicle Type: <span style="color: blue;">{{ vtype }}</span></h3>
+        <p>If this is incorrect, visit the <a href="/admin">Admin Page</a>.</p>
+        <hr>
+        <h3>Motors</h3>
+        {{ motor_html }}
+        <br>
+        <div>
+            <button id="stopAll" class="stop-btn" onclick="stopAll()">STOP ALL MOTORS</button>
+            <span id="ws_status" style="margin-left:16px;color:red">WebSocket: Disconnected</span>
+        </div>
+    </div>
+</body>
+
+</html>

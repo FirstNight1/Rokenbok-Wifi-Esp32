@@ -1,11 +1,6 @@
 from variables.vars_store import load_config, save_config
 import sys
-import ubinascii
 import os
-try:
-    import ucryptolib as cryptolib
-except Exception:
-    cryptolib = None
 try:
     import network
 except Exception:
@@ -72,77 +67,36 @@ def build_wifi_page(cfg, scan_results=None, status_info=None):
         </script>
         """
 
-    # Load header/nav HTML and inject vehicle_name
+    # Load WiFi page HTML template and inject values
     try:
         with open("web/pages/assets/header_nav.html", "r") as f:
             header_nav = f.read().replace("{{ vehicle_name }}", vehicle_name)
     except Exception:
         header_nav = f"<div style='background:#222;color:#fff;padding:12px;text-align:center'>Rokenbok Vehicle Control<br><span style='color:#f9e79f'>{vehicle_name}</span></div>"
 
-    return f"""
-    <html>
-    <body>
-    {header_nav}
-    <div style='max-width:600px;margin:32px auto 0 auto;'>
-        <h2>WiFi Setup</h2>
-        {status_html}
-        {error_msg}
-        <form method="POST" action="/wifi">
-            <label>SSID:</label>
-            <div style='display:flex;align-items:center;gap:8px;'>
-                <input id="ssid_input" name="ssid" value="{ssid_val}" autocomplete="off">
-                <button type="button" onclick="scanNetworks()">Scan</button>
-            </div>
-            <br>
-            <label>Password:</label>
-            <div style='display:flex;align-items:center;gap:8px;'>
-                <input id="wifipass_input" name="wifipass" type="password" value="" autocomplete="off">
-                <button type="button" onclick="toggleShowPW()" id="showpw_btn">👁️ Show</button>
-            </div>
-            <br>
-            <label>IP Configuration:</label><br>
-            <input type="radio" id="dhcp" name="ip_mode" value="dhcp" {'checked' if ip_mode=='dhcp' else ''} onchange="toggleStaticFields()"> <label for="dhcp">DHCP (Automatic)</label>
-            <input type="radio" id="static" name="ip_mode" value="static" {'checked' if ip_mode=='static' else ''} onchange="toggleStaticFields()"> <label for="static">Static IP</label>
-            <div id="static_fields" style="margin-top:8px;{'' if ip_mode=='static' else 'display:none;'}">
-                <label>IP Address:</label><br>
-                <input name="static_ip" value="{static_ip}" pattern="\d+\.\d+\.\d+\.\d+" autocomplete="off"><br>
-                <label>Subnet Mask:</label><br>
-                <input name="static_mask" value="{static_mask}" pattern="\d+\.\d+\.\d+\.\d+" autocomplete="off"><br>
-                <label>Gateway:</label><br>
-                <input name="static_gw" value="{static_gw}" pattern="\d+\.\d+\.\d+\.\d+" autocomplete="off"><br>
-                <label>DNS:</label><br>
-                <input name="static_dns" value="{static_dns}" pattern="\d+\.\d+\.\d+\.\d+" autocomplete="off"><br>
-            </div>
-            <br>
-            <input type="submit" value="Save">
-        </form>
-    </div>
-    {scan_modal}
-    <script>
-    function scanNetworks() {{
-        fetch('/wifi_scan').then(r => r.json()).then(js => {{
-            // Re-render page with scan results
-            document.body.innerHTML += js.html;
-        }});
-    }}
-    function toggleShowPW() {{
-        var pw = document.getElementById('wifipass_input');
-        var btn = document.getElementById('showpw_btn');
-        if (pw.type === 'password') {{
-            pw.type = 'text'; btn.textContent = '🙈 Hide';
-        }} else {{
-            pw.type = 'password'; btn.textContent = '👁️ Show';
-        }}
-    }}
-    function toggleStaticFields() {{
-        var staticFields = document.getElementById('static_fields');
-        var staticRadio = document.getElementById('static');
-        staticFields.style.display = staticRadio.checked ? '' : 'none';
-    }}
-    </script>
-    </body>
-    </html>
-    """
+    try:
+        with open("web/pages/assets/wifi_page.html", "r") as f:
+            html = f.read()
+    except Exception:
+        html = "<html><body><h2>WiFi page asset missing</h2></body></html>"
+
+    # Prepare replacements for template
+    html = html.replace("{{ header_nav }}", header_nav)
+    html = html.replace("{{ status_html }}", status_html)
+    html = html.replace("{{ error_msg }}", error_msg)
+    html = html.replace("{{ ssid_val }}", ssid_val)
+    html = html.replace("{{ vehicle_name }}", vehicle_name)
+    # Ensure static_fields_display is always correct
+    static_fields_display = '' if ip_mode == 'static' else 'display:none;'
+    html = html.replace("{{ dhcp_checked }}", 'checked' if ip_mode=='dhcp' else '')
+    html = html.replace("{{ static_checked }}", 'checked' if ip_mode=='static' else '')
+    html = html.replace("{{ static_fields_display }}", static_fields_display)
+    html = html.replace("{{ static_ip }}", static_ip)
+    html = html.replace("{{ static_mask }}", static_mask)
+    html = html.replace("{{ static_gw }}", static_gw)
+    html = html.replace("{{ static_dns }}", static_dns)
+    html = html.replace("{{ scan_modal }}", scan_modal)
+    return html
 
 
 # ---------------------------------------------------------
@@ -202,13 +156,8 @@ def handle_post(body, cfg):
     cfg["static_mask"] = static_mask
     cfg["static_gw"] = static_gw
     cfg["static_dns"] = static_dns
-    # Encrypt password before saving
-    if wifipass:
-        key = b"rokwifi1234"  # Simple static key; for real security use device-unique key
-        enc = xor_crypt(wifipass.encode(), key)
-        cfg["wifipass"] = ubinascii.b2a_base64(enc).decode().strip()
-    else:
-        cfg["wifipass"] = ""
+    # Save password as plaintext (for simplicity)
+    cfg["wifipass"] = wifipass
 
     # Clear old failure marker
     cfg.pop("wifi_error", None)
@@ -221,14 +170,21 @@ def handle_post(body, cfg):
 def handle_wifi_scan():
     nets = []
     try:
-        import network
+        import network, utime
         sta = network.WLAN(network.STA_IF)
+        sta.active(False)
+        utime.sleep_ms(500)
         sta.active(True)
+        utime.sleep_ms(500)
         scan = sta.scan()
+        utime.sleep_ms(10)  # yield to scheduler
+        seen = set()
         for net in scan:
             ssid = net[0].decode() if isinstance(net[0], bytes) else str(net[0])
-            secure = net[4] > 0
-            nets.append({'ssid': ssid, 'secure': secure})
+            if ssid and ssid not in seen:
+                secure = net[4] > 0
+                nets.append({'ssid': ssid, 'secure': secure})
+                seen.add(ssid)
     except Exception as e:
         pass
     # Render only the modal
