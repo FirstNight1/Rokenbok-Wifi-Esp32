@@ -171,6 +171,10 @@
             </div>
             <div class="section">
                 <h2>Motor Mapping</h2>
+                <div style="margin-bottom:6px;">
+                    <span style="font-weight:600;">Current Drive Mode:</span>
+                    <span id="drive_mode_indicator" style="color:#1976d2;">{{ drive_mode }}</span>
+                </div>
                 <ul class="motor-map-list">
                     {{ axis_map_list }}
                 </ul>
@@ -195,14 +199,19 @@
                 </div>
             </div>
             <div class="section bt-section">
-                <h2>Controller</h2>
-                <div id="controller_source_section"></div>
-                <div id="ble_controller_section">
-                    <button onclick="scanBT()">Scan for Controllers</button>
-                    <ul class="bt-list" id="bt_list"></ul>
-                    <div class="bt-status" id="bt_status">Not connected</div>
+                <h2>Local Controller</h2>
+                <div style="margin-bottom:8px;">
+                    <button id="rescan_gamepads_btn" onclick="rescanGamepads()">Rescan</button>
                 </div>
-                <div id="browser_controller_section" style="display:none;margin-top:10px;"></div>
+                <div style="margin-bottom:8px;">
+                    <label for="gamepad_select">Select Controller:</label><br>
+                    <select id="gamepad_select" style="width:90%;margin-top:4px;"></select>
+                </div>
+                <div id="gamepad_status" style="font-size:0.95em;color:#888;">No controllers found.</div>
+            </div>
+            <div class="section bt-section">
+                <h2>Bluetooth Controller</h2>
+                <div style="color:#888;">Functionality not yet implemented.</div>
             </div>
         </div>
     </div>

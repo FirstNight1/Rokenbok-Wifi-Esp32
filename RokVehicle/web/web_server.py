@@ -1,19 +1,17 @@
-
-
 import uasyncio as asyncio
 import sys
-from web.pages import wifi_page, admin_page, home_page, testing_page
+from web.pages import wifi_page, admin_page, home_page, testing_page, play_page
 from variables.vars_store import load_config
 
 
 import hashlib
+
 try:
     import esp32
 except ImportError:
     esp32 = None
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-
 
 
 WS_CLIENT = None  # Only one controlling websocket client
@@ -23,6 +21,7 @@ ROUTES = {
     "/wifi": wifi_page,
     "/admin": admin_page,
     "/testing": testing_page,
+    "/play": play_page,
 }
 
 
@@ -51,11 +50,11 @@ async def handle_client(reader, writer):
         method = parts[0]
         full_path = parts[1]
         # Split path and query string
-        if '?' in full_path:
-            path, query_string = full_path.split('?', 1)
+        if "?" in full_path:
+            path, query_string = full_path.split("?", 1)
         else:
             path = full_path
-            query_string = ''
+            query_string = ""
         # version = parts[2] if len(parts) >= 3 else "HTTP/1.0"
 
         # --- Read headers until blank line ---
@@ -73,45 +72,51 @@ async def handle_client(reader, writer):
                 headers[k.strip().lower()] = v.strip()
 
         # If this is a WebSocket upgrade, handle it here (path /ws)
-        if headers.get('upgrade') == 'websocket' and hashlib and 'sec-websocket-key' in headers:
+        if (
+            headers.get("upgrade") == "websocket"
+            and hashlib
+            and "sec-websocket-key" in headers
+        ):
             # only allow upgrade on a dedicated path
-            if path.startswith('/ws'):
+            if path.startswith("/ws"):
                 await _handle_websocket(reader, writer, headers, path)
                 return
 
         # --- Static assets (serve files under /assets/) ---
-        if path.startswith('/assets/'):
+        if path.startswith("/assets/"):
             # map /assets/<name> -> web/pages/assets/<name>
-            sub = path[len('/assets/'):]
+            sub = path[len("/assets/") :]
             # Some MicroPython ports don't include os.path; compute paths manually
             base_file = __file__
-            if '/' in base_file:
-                base_dir = base_file.rsplit('/', 1)[0]
-            elif '\\' in base_file:
-                base_dir = base_file.rsplit('\\', 1)[0]
+            if "/" in base_file:
+                base_dir = base_file.rsplit("/", 1)[0]
+            elif "\\" in base_file:
+                base_dir = base_file.rsplit("\\", 1)[0]
             else:
-                base_dir = '.'
+                base_dir = "."
             # join parts into a single posix-style path
-            fpath = '/'.join([base_dir.rstrip('/'), 'pages', 'assets', sub.lstrip('/')])
+            fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", sub.lstrip("/")])
             try:
-                with open(fpath, 'rb') as fh:
+                with open(fpath, "rb") as fh:
                     data = fh.read()
                 # simple content type detection
-                if fpath.endswith('.js'):
-                    ctype = 'application/javascript'
-                elif fpath.endswith('.css'):
-                    ctype = 'text/css'
-                elif fpath.endswith('.png'):
-                    ctype = 'image/png'
-                elif fpath.endswith('.jpg') or fpath.endswith('.jpeg'):
-                    ctype = 'image/jpeg'
+                if fpath.endswith(".js"):
+                    ctype = "application/javascript"
+                elif fpath.endswith(".css"):
+                    ctype = "text/css"
+                elif fpath.endswith(".png"):
+                    ctype = "image/png"
+                elif fpath.endswith(".jpg") or fpath.endswith(".jpeg"):
+                    ctype = "image/jpeg"
                 else:
-                    ctype = 'application/octet-stream'
+                    ctype = "application/octet-stream"
 
                 # include content-length and cache-control
                 clen = len(data)
-                cache_hdr = 'Cache-Control: no-store'
-                writer.write(f"HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {clen}\r\n{cache_hdr}\r\n\r\n")
+                cache_hdr = "Cache-Control: no-store"
+                writer.write(
+                    f"HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {clen}\r\n{cache_hdr}\r\n\r\n"
+                )
                 # write raw bytes
                 try:
                     writer.write(data)
@@ -128,10 +133,8 @@ async def handle_client(reader, writer):
                 # not found - fall through to route handling / redirect
                 pass
 
-
-
         # --- /status endpoint ---
-        if path == '/status':
+        if path == "/status":
             # busy if vehicle is being controlled
             busy = bool(WS_CLIENT)
             try:
@@ -140,28 +143,28 @@ async def handle_client(reader, writer):
                 cfg = {}
             # Read MCU temperature if possible
             mcu_temp = None
-            if esp32 and hasattr(esp32, 'mcu_temperature'):
+            if esp32 and hasattr(esp32, "mcu_temperature"):
                 try:
                     mcu_temp = esp32.mcu_temperature()
                 except Exception:
                     mcu_temp = None
             resp = {
-                'type': cfg.get('vehicleType', 'Unknown'),
-                'tag': cfg.get('vehicleTag', 'N/A'),
-                'vehicleName': cfg.get('vehicleName', 'Unnamed Vehicle'),
-                'busy': busy,
-                'battery': None,
-                'mcu_temp': mcu_temp
+                "type": cfg.get("vehicleType", "Unknown"),
+                "tag": cfg.get("vehicleTag", "N/A"),
+                "vehicleName": cfg.get("vehicleName", "Unnamed Vehicle"),
+                "busy": busy,
+                "battery": None,
+                "mcu_temp": mcu_temp,
             }
             import json
-            writer.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps(resp))
+
+            writer.write(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+                + json.dumps(resp)
+            )
             await writer.drain()
             await writer.aclose()
             return
-
-
-
-
 
         # ----------- GET/POST -----------
         # Route to correct page handler
@@ -179,8 +182,8 @@ async def handle_client(reader, writer):
                 return
             elif method == "POST":
                 # Read POST body
-                content_length = int(headers.get('content-length', 0))
-                body = await reader.read(content_length) if content_length else b''
+                content_length = int(headers.get("content-length", 0))
+                body = await reader.read(content_length) if content_length else b""
                 body = body.decode() if isinstance(body, bytes) else body
                 # Load config for POST handler
                 cfg = None
@@ -211,9 +214,9 @@ async def _ws_recv_frame(reader):
     b1 = hdr[0]
     b2 = hdr[1]
     fin = (b1 & 0x80) != 0
-    opcode = b1 & 0x0f
+    opcode = b1 & 0x0F
     masked = (b2 & 0x80) != 0
-    length = b2 & 0x7f
+    length = b2 & 0x7F
     if length == 126:
         ext = await reader.read(2)
         length = (ext[0] << 8) | ext[1]
@@ -228,7 +231,7 @@ async def _ws_recv_frame(reader):
     if masked:
         mask_key = await reader.read(4)
 
-    data = await reader.read(length) if length else b''
+    data = await reader.read(length) if length else b""
     if masked and mask_key:
         data = bytes([data[i] ^ mask_key[i % 4] for i in range(len(data))])
 
@@ -245,11 +248,23 @@ async def _ws_send_text(writer, text):
         header.append(L)
     elif L < (1 << 16):
         header.append(126)
-        header.extend(bytes([(L >> 8) & 0xff, L & 0xff]))
+        header.extend(bytes([(L >> 8) & 0xFF, L & 0xFF]))
     else:
         header.append(127)
-        header.extend(bytes([(L >> 56) & 0xff, (L >> 48) & 0xff, (L >> 40) & 0xff, (L >> 32) & 0xff,
-                             (L >> 24) & 0xff, (L >> 16) & 0xff, (L >> 8) & 0xff, L & 0xff]))
+        header.extend(
+            bytes(
+                [
+                    (L >> 56) & 0xFF,
+                    (L >> 48) & 0xFF,
+                    (L >> 40) & 0xFF,
+                    (L >> 32) & 0xFF,
+                    (L >> 24) & 0xFF,
+                    (L >> 16) & 0xFF,
+                    (L >> 8) & 0xFF,
+                    L & 0xFF,
+                ]
+            )
+        )
     writer.write(header + payload)
     try:
         await writer.drain()
@@ -259,12 +274,13 @@ async def _ws_send_text(writer, text):
 
 async def _handle_websocket(reader, writer, headers, path):
     # perform handshake
-    key = headers.get('sec-websocket-key')
+    key = headers.get("sec-websocket-key")
     accept = None
     try:
         sha = hashlib.sha1()
         sha.update((key + WS_GUID).encode())
         import ubinascii
+
         accept = ubinascii.b2a_base64(sha.digest()).decode().strip()
     except Exception as e:
         try:
@@ -274,15 +290,13 @@ async def _handle_websocket(reader, writer, headers, path):
         return
 
     resp = (
-        'HTTP/1.1 101 Switching Protocols\r\n'
-        'Upgrade: websocket\r\n'
-        'Connection: Upgrade\r\n'
-        f'Sec-WebSocket-Accept: {accept}\r\n\r\n'
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
     )
     writer.write(resp)
     await writer.drain()
-
-
 
     # Only allow one controlling client at a time
     global WS_CLIENT
@@ -299,8 +313,6 @@ async def _handle_websocket(reader, writer, headers, path):
     except Exception as e:
         mc = None
 
-
-
     while True:
         try:
             frame = await _ws_recv_frame(reader)
@@ -311,7 +323,7 @@ async def _handle_websocket(reader, writer, headers, path):
             if opcode == 8:
                 break
             if opcode == 9:
-                await _ws_send_text(writer, '')
+                await _ws_send_text(writer, "")
                 continue
             if opcode != 1:
                 continue
@@ -323,6 +335,7 @@ async def _handle_websocket(reader, writer, headers, path):
 
             # parse JSON command
             import json
+
             try:
                 pkt = json.loads(text)
             except Exception as e:
@@ -332,18 +345,15 @@ async def _handle_websocket(reader, writer, headers, path):
                 continue
 
             # dispatch commands (set/stop/stop_all)
-            action = pkt.get('action')
-            if mc and action == 'set':
-                name = pkt.get('name')
-                dir = pkt.get('dir', 'fwd')
-                power = float(pkt.get('power', 0))
-                print(f"[WS DEBUG] set: name={name}, dir={dir}, power={power}")
+            action = pkt.get("action")
+            if mc and action == "set":
+                name = pkt.get("name")
+                dir = pkt.get("dir", "fwd")
+                power = float(pkt.get("power", 0))
                 mc.motor_controller.set_motor(name, dir, power)
-            elif mc and action == 'stop':
-                print(f"[WS DEBUG] stop: name={pkt.get('name')}")
-                mc.motor_controller.stop_motor(pkt.get('name'))
-            elif mc and action == 'stop_all':
-                print("[WS DEBUG] stop_all")
+            elif mc and action == "stop":
+                mc.motor_controller.stop_motor(pkt.get("name"))
+            elif mc and action == "stop_all":
                 mc.motor_controller.stop_all()
 
         except Exception as e:
@@ -377,7 +387,8 @@ def run():
     # If MotorController is present, schedule its async watchdog and UDP consumer
     try:
         import control.motor_controller as mc
-        if hasattr(mc, 'motor_controller') and hasattr(mc.motor_controller, 'watchdog'):
+
+        if hasattr(mc, "motor_controller") and hasattr(mc.motor_controller, "watchdog"):
             loop.create_task(mc.motor_controller.watchdog())
 
             # UDP command consumer: runs in main thread, processes queued UDP commands
@@ -388,23 +399,23 @@ def run():
                         for p in cmds:
                             if not isinstance(p, dict):
                                 continue
-                            action = p.get('action')
-                            if action == 'set':
-                                name = p.get('name')
-                                dir = p.get('dir', 'fwd')
+                            action = p.get("action")
+                            if action == "set":
+                                name = p.get("name")
+                                dir = p.get("dir", "fwd")
                                 try:
-                                    power = float(p.get('power', 0))
+                                    power = float(p.get("power", 0))
                                 except Exception:
                                     power = 0
                                 mc.motor_controller.set_motor(name, dir, power)
-                            elif action == 'stop':
-                                mc.motor_controller.stop_motor(p.get('name'))
-                            elif action == 'stop_all':
+                            elif action == "stop":
+                                mc.motor_controller.stop_motor(p.get("name"))
+                            elif action == "stop_all":
                                 mc.motor_controller.stop_all()
                     await asyncio.sleep(0.01)
+
             loop.create_task(udp_consumer())
     except Exception:
         pass
-
 
     loop.run_forever()

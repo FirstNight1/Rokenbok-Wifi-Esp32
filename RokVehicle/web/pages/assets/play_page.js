@@ -1,3 +1,61 @@
+// --- Local Controller (Gamepad) Section ---
+let availableGamepads = [];
+let selectedGamepadIndex = null;
+
+function rescanGamepads() {
+    availableGamepads = [];
+    const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (let i = 0; i < gps.length; ++i) {
+        if (gps[i]) availableGamepads.push(gps[i]);
+    }
+    populateGamepadDropdown();
+}
+
+function populateGamepadDropdown() {
+    const select = document.getElementById('gamepad_select');
+    const status = document.getElementById('gamepad_status');
+    select.innerHTML = '';
+    if (availableGamepads.length === 0) {
+        status.textContent = 'No controllers found.';
+        select.disabled = true;
+        return;
+    }
+    availableGamepads.forEach((gp, idx) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = gp.id || `Gamepad ${idx + 1}`;
+        select.appendChild(opt);
+    });
+    select.disabled = false;
+    status.textContent = 'Select a controller.';
+    // Restore previous selection if possible
+    if (selectedGamepadIndex !== null && availableGamepads[selectedGamepadIndex]) {
+        select.value = selectedGamepadIndex;
+    } else {
+        selectedGamepadIndex = 0;
+        select.value = 0;
+    }
+}
+
+function handleGamepadSelection() {
+    const select = document.getElementById('gamepad_select');
+    selectedGamepadIndex = parseInt(select.value);
+    const status = document.getElementById('gamepad_status');
+    if (availableGamepads[selectedGamepadIndex]) {
+        status.textContent = `Selected: ${availableGamepads[selectedGamepadIndex].id}`;
+    }
+}
+
+window.addEventListener('gamepadconnected', rescanGamepads);
+window.addEventListener('gamepaddisconnected', rescanGamepads);
+
+document.addEventListener('DOMContentLoaded', function () {
+    const rescanBtn = document.getElementById('rescan_gamepads_btn');
+    const select = document.getElementById('gamepad_select');
+    if (rescanBtn) rescanBtn.addEventListener('click', rescanGamepads);
+    if (select) select.addEventListener('change', handleGamepadSelection);
+    rescanGamepads();
+});
 // --- Play page UI logic for view selection, camera IPs, PIP flip, controller mapping, and Bluetooth scan (placeholder) ---
 
 let viewMode = 'area';
@@ -97,41 +155,59 @@ function renderMappingUI() {
     const container = document.getElementById('mapping_section');
     if (!container) return;
     let html = '';
+    // Axis Motors
     html += '<h3>Axis Motors</h3>';
     if (typeof axisMotors !== 'undefined' && axisMotors.length) {
-        html += '<table><tr><th>Name</th><th>Axis</th><th>Reverse</th><th>Deadzone</th></tr>';
+        html += '<table><tr><th>Name</th>';
+        if (driveMode === 'tank') {
+            html += '<th>Axis</th><th>Fwd Btn</th><th>Rev Btn</th>';
+        } else {
+            html += '<th>D-Pad Dir</th><th>Fwd Btn</th><th>Rev Btn</th>';
+        }
+        html += '</tr>';
         axisMotors.forEach((motor, idx) => {
-            html += `<tr><td>${motor.name}</td>` +
-                `<td><input id="axis_${motor.id}_axis" type="number" value="${mapping[`axis_${motor.id}_axis`] ?? ''}" style="width:40px"></td>` +
-                `<td><input id="axis_${motor.id}_rev" type="checkbox" ${mapping[`axis_${motor.id}_rev`] ? 'checked' : ''}></td>` +
-                `<td><input id="axis_${motor.id}_dead" type="number" step="0.01" value="${mapping[`axis_${motor.id}_dead`] ?? 0.1}" style="width:50px"></td></tr>`;
+            html += `<tr><td>${motor.name}</td>`;
+            // Axis or D-Pad assignment
+            if (driveMode === 'tank') {
+                html += `<td class="map-cell" id="axis_${motor.id}_axis_cell" onclick="startMapping('axis_${motor.id}_axis','axis')">${mapping[`axis_${motor.id}_axis`] !== undefined ? 'Axis ' + mapping[`axis_${motor.id}_axis`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
+            } else {
+                html += `<td class="map-cell" id="axis_${motor.id}_dpad_cell" onclick="startMapping('axis_${motor.id}_dpad','dpad')">${mapping[`axis_${motor.id}_dpad`] !== undefined ? mapping[`axis_${motor.id}_dpad`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
+            }
+            // Forward/Reverse button assignment (always allowed)
+            html += `<td class="map-cell" id="axis_${motor.id}_fwd_cell" onclick="startMapping('axis_${motor.id}_fwd','button')">${mapping[`axis_${motor.id}_fwd`] !== undefined ? mapping[`axis_${motor.id}_fwd`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
+            html += `<td class="map-cell" id="axis_${motor.id}_rev_cell" onclick="startMapping('axis_${motor.id}_rev','button')">${mapping[`axis_${motor.id}_rev`] !== undefined ? mapping[`axis_${motor.id}_rev`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
+            html += '</tr>';
         });
         html += '</table>';
     } else {
         html += '<div style="color:#888">No axis motors configured.</div>';
     }
+    // Motor Functions
     html += '<h3>Motor Functions</h3>';
     if (typeof motorFunctions !== 'undefined' && motorFunctions.length) {
-        html += '<table><tr><th>Name</th><th>Forward Btn</th><th>Reverse Btn</th></tr>';
+        html += '<table><tr><th>Name</th><th>Fwd Btn</th><th>Rev Btn</th></tr>';
         motorFunctions.forEach((fn, idx) => {
-            html += `<tr><td>${fn.name}</td>` +
-                `<td><input id="motorfn_${fn.id}_fwd" type="text" value="${mapping[`motorfn_${fn.id}_fwd`] ?? ''}" style="width:40px"></td>` +
-                `<td><input id="motorfn_${fn.id}_rev" type="text" value="${mapping[`motorfn_${fn.id}_rev`] ?? ''}" style="width:40px"></td></tr>`;
+            html += `<tr><td>${fn.name}</td>`;
+            html += `<td class="map-cell" id="motorfn_${fn.id}_fwd_cell" onclick="startMapping('motorfn_${fn.id}_fwd','button')">${mapping[`motorfn_${fn.id}_fwd`] !== undefined ? mapping[`motorfn_${fn.id}_fwd`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
+            html += `<td class="map-cell" id="motorfn_${fn.id}_rev_cell" onclick="startMapping('motorfn_${fn.id}_rev','button')">${mapping[`motorfn_${fn.id}_rev`] !== undefined ? mapping[`motorfn_${fn.id}_rev`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
+            html += '</tr>';
         });
         html += '</table>';
     } else {
         html += '<div style="color:#888">No motor functions configured.</div>';
     }
-    html += '<h3>Logic Functions</h3>';
+    // Logic/Regular Functions
+    html += '<h3>Functions</h3>';
     if (typeof logicFunctions !== 'undefined' && logicFunctions.length) {
         html += '<table><tr><th>Name</th><th>Button</th></tr>';
         logicFunctions.forEach((fn, idx) => {
-            html += `<tr><td>${fn.name}</td>` +
-                `<td><input id="logicfn_${fn.id}_btn" type="text" value="${mapping[`logicfn_${fn.id}_btn`] ?? ''}" style="width:40px"></td></tr>`;
+            html += `<tr><td>${fn.name}</td>`;
+            html += `<td class="map-cell" id="logicfn_${fn.id}_btn_cell" onclick="startMapping('logicfn_${fn.id}_btn','button')">${mapping[`logicfn_${fn.id}_btn`] !== undefined ? mapping[`logicfn_${fn.id}_btn`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
+            html += '</tr>';
         });
         html += '</table>';
     } else {
-        html += '<div style="color:#888">No logic functions configured.</div>';
+        html += '<div style="color:#888">No functions configured.</div>';
     }
     html += `<button id="save_mapping_btn">Save Mapping</button>`;
     html += `<div id="mapping_status" style="margin-top:8px;color:#1976d2;"></div>`;
@@ -254,6 +330,7 @@ function loadConfigAndRender() {
         document.getElementById('fpv_ip').value = fpvIP;
         updateViewUI();
         renderMappingUI();
+        updateDriveModeIndicator();
     });
 }
 
@@ -383,7 +460,28 @@ function scanBT() {
 
 // Placeholder for D-Pad/Tank toggle
 function toggleDriveMode() {
-    alert('Drive mode toggled (not yet implemented)');
+    // Toggle drive mode between 'tank' and 'dpad'
+    driveMode = (driveMode === 'tank') ? 'dpad' : 'tank';
+    // Update backend
+    fetch('/play', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'save_mapping',
+            mapping: mapping,
+            drive_mode: driveMode
+        })
+    }).then(() => {
+        updateDriveModeIndicator();
+        alert('Drive mode set to ' + driveMode.charAt(0).toUpperCase() + driveMode.slice(1));
+    });
+}
+
+function updateDriveModeIndicator() {
+    var indicator = document.getElementById('drive_mode_indicator');
+    if (indicator) {
+        indicator.textContent = driveMode.charAt(0).toUpperCase() + driveMode.slice(1);
+    }
 }
 // Basic websocket helper for realtime control (extracted from play_page.py)
 var ws = null;
