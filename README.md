@@ -16,10 +16,10 @@ If you intend to ever reverse this modification, I would suggest taking thorough
 
 Parts used:
 2x DRV8833 breakout motor driver boards (generic)
-1x SeeedStudio XAIO ESP32-S3 controller board, flashed with Micropython and then the latest RokVehicle release (Instructions included in a Readme.md in RokVehicle)
-1-4x 220ohm 1/4 watt resistors, if the vehicle has LEDs (optional)
+1x SeeedStudio XIAO ESP32-S3 controller board, flashed with Micropython and then the latest RokVehicle release (Instructions included in a Readme.md in RokVehicle)
+220ohm 1/4 watt resistors, if the vehicle has LEDs (optional)
 1x power switch (optional)
-(Wire, mounting tape or glue, solder, and other miscellanious electronics bits may be required)
+(Wire - suggest 22 or 24ga, mounting tape or glue, solder, and other miscellanious electronics bits may be required)
 (This project requires mid-level soldering skills)
 2. The hardware above will enable a minimal conversion, that only alters the vehicle drive base to use the new control system.  See below sections if you want to add FPV, or eventually we will likely include instructions for power/battery modifications as well.  Currently, this setup is intended to utilize the stock alkaline batteries, and has also proven able to operate on NiMH rechargeables as well.
 3. Navigate to the Vehicle Info page for the vehicle you are looking to modify.  It will contain the mechanical steps and pictures needed to disassemble the vehicle, as well as pictures of the control board.  You will need to desolder ALL wires from the existing control board, and remove that control board.
@@ -38,15 +38,23 @@ Parts used:
 10. If you are going to use the AP to control the vehicle, go ahead and reboot it now by turning it off and on, or removing and replacing the batteries, and connect your device to the new AP.  If you plan to connect the vehicle to your home wifi and control it that way, then navigate to the wifi page and enter your wifi details.  By default, the vehicle will use DHCP to connect to this wifi network, though you can set a static IP on this page if needed.
   * When the vehicle boots up, it will attempt 5 times to connect to the wifi network, if configured.  If the vehicle is unable to connect to the network, it will "fall back" to AP mode, and you will see a network with the tag of the vehicle, just like in step 7.  You can use this to check and correct any errors in the wifi settings.  Or also works great if you travel with the vehicle and want to use it away from your configured network, it will quickly fall into AP mode and you can play with it that way.
 NOTE: If you get stuck on a bad wifi network or set a bad static IP or similar, reboot the vehicle 3 times in rapid succession (less than 20 seconds between reboots), and it will force the vehicle into AP mode, so you can connect back and edit the wifi/IP settings.  Note that this will not clear your stored wifi network and credentials, so future reboots will still attempt to connect back to the configured network unless you make edits.
-11. The vehicle should now be connected to your network, or you are using it in AP mode.  It's time to configure the program to your specific vehicle.  Go to the Testing page.  The browser should open a websocket to the vehicle (which emulates how a controller will control the vehicle), and then give a list of the motors present on the vehicle, and some configuration items for each: 
+11. The vehicle should now be connected to your network, or you are using it in AP mode.  It's time to configure things for your specific vehicle hardware.  Go to the Testing page.  The browser should open a websocket to the vehicle (which emulates how a controller will control the vehicle), and then give a list of the motors present on the vehicle, and some configuration items for each: A motor port number (in case you wired your vehicle different from the schematic), a minimum power per motor (controleld on a scale from 1-65), and a reversed checkbox (used for drive or function motors if they rotate opposite the intended direction for "forward" and "reverse", for example if you forgot to reverse the wiring on one of the drive motors so it's opposite the other, or the sweeper is intaking balls on reverse rather than forward, etc.)
 
 Go to the Play screen via the header, or the Play Now button on the home screen, and you should be able to connect a controller to your device and control the vehicle!  The Play page is explained in more detail later.
 
 
 
-# TODOs
-Add setting a password to AP mode rather than always using 1234567890
-Readme.md in RokVehicle on flashing micropython and this program onto the board
-Item in this readme.md on the Play page and using gamepads and assigning the control methodology and buttons, and using axis controllers, and connecting bluetooth gamepads directly to the vehicle.
-FPV Conversion instructions and setup
-Play server instructions and setup
+
+# TODO List (Project-wide)
+
+- [ ] Remove all debug logging and print statements from all code (production cleanup)
+- [ ] Refactor and clean up every class for clarity and maintainability
+- [ ] Check every web page and Python file for syntax issues and errors
+- [ ] Fix: Crashes in the web server cause the REPL to hang; ensure graceful error handling and recovery
+- [ ] Fix: Nothing restarts gracefully after a crash; implement robust restart logic
+- [ ] Fix: WiFi retry logic—if WiFi fails the first time, subsequent retries immediately fail with 'WiFi Internal Error'; ensure retries are meaningful
+- [ ] Add setting a password to AP mode rather than always using 1234567890
+- [ ] Add a Readme.md in RokVehicle on flashing MicroPython and this program onto the board
+- [ ] Add documentation in this Readme.md on the Play page, using gamepads, assigning control methodology and buttons, using axis controllers, and connecting Bluetooth gamepads directly to the vehicle
+- [ ] FPV conversion instructions and setup
+- [ ] Play server instructions and setup

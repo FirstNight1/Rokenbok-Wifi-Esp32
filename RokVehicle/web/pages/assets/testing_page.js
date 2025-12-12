@@ -1,14 +1,19 @@
-// Save reversed state for a motor
+// Save reversed state for a motor using POST (only on Save button click)
 async function saveReversed(name) {
     let checked = document.getElementById(name + '_reversed').checked;
     try {
-        const ok = await fetch('/testing', {
+        const resp = await fetch('/testing', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'save_reversed', name: name, reversed: checked })
         });
-        if (ok && ok.ok) alert('Saved reversed for ' + name);
-        else alert('Failed to save reversed (no connection)');
+        if (resp.redirected) {
+            window.location.href = resp.url;
+        } else if (resp.ok) {
+            window.location.reload();
+        } else {
+            alert('Failed to save reversed (server error)');
+        }
     } catch (e) {
         alert('Failed to save reversed for ' + name);
     }
@@ -38,12 +43,18 @@ function setWSStatus(connected) {
     for (var i = 0; i < stopBtns.length; ++i) {
         stopBtns[i].disabled = !connected;
     }
+    var fwdRevBtns = document.querySelectorAll('button');
+    for (var i = 0; i < fwdRevBtns.length; ++i) {
+        if (fwdRevBtns[i].textContent === 'Forward' || fwdRevBtns[i].textContent === 'Reverse') {
+            fwdRevBtns[i].disabled = !connected;
+        }
+    }
 }
 function initWS() {
     try {
         ws = new WebSocket('ws://' + location.host + '/ws');
         ws.onopen = function () { console.log('WS open'); setWSStatus(true); };
-    ws.onclose = function () { console.log('WS closed'); setWSStatus(false); setTimeout(initWS, 5000); };
+        ws.onclose = function () { console.log('WS closed'); setWSStatus(false); setTimeout(initWS, 5000); };
         ws.onerror = function (e) { console.log('WS error', e); setWSStatus(false); };
         ws.onmessage = function (m) {
             try {
@@ -64,11 +75,9 @@ function initWS() {
 
 window.addEventListener('DOMContentLoaded', function () { initWS(); });
 
-// Unified dispatcher: try WebSocket, fallback to POST only for saveMin
+// Unified dispatcher: try WebSocket
 function dispatchCommand(action, payload, allowHttpFallback) {
     const pkt = Object.assign({ action: action }, payload || {});
-    // Only allow HTTP fallback for save_min
-    const allowFallback = (action === 'save_min') && allowHttpFallback;
     if (ws && ws.readyState === 1) {
         try {
             ws.send(JSON.stringify(pkt));
@@ -77,14 +86,7 @@ function dispatchCommand(action, payload, allowHttpFallback) {
             // fallthrough
         }
     }
-    if (allowFallback) {
-        return fetch('/testing', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(pkt)
-        }).then(function () { return true; }).catch(function () { return false; });
-    }
-    // No WS and no fallback allowed: notify caller
+    // No WebSocket connection: notify caller
     return Promise.resolve(false);
 }
 
@@ -92,7 +94,7 @@ function dispatchCommand(action, payload, allowHttpFallback) {
 async function sendStop(name) {
     // locally cancel timers first
     stopLocal(name);
-    const ok = await dispatchCommand('stop', { name: name }, false); // never allow fallback
+    const ok = await dispatchCommand('stop', { name: name }); // never allow fallback
     if (!ok) alert('WebSocket not connected — cannot send stop command.');
 }
 
@@ -107,7 +109,7 @@ function stopLocal(name) {
 // Stop all motors: clear all state and dispatch stop_all
 async function stopAll() {
     stopAllLocal();
-    const ok = await dispatchCommand('stop_all', {}, false); // never allow fallback
+    const ok = await dispatchCommand('stop_all', {}); // never allow fallback
     if (!ok) alert('WebSocket not connected — cannot send stop all command.');
 }
 
@@ -123,14 +125,22 @@ function stopAllLocal() {
     } catch (e) { }
 }
 
-// Save minimum duty for a motor
+// Save minimum duty for a motor using POST only
 async function saveMin(name) {
     let val = parseInt(document.getElementById(name + '_min').value);
     try {
-        // Only save_min allows HTTP fallback
-        const ok = await dispatchCommand('save_min', { name: name, min: val }, true);
-        if (ok) alert('Saved min for ' + name);
-        else alert('Failed to save min (no connection)');
+        const resp = await fetch('/testing', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'save_min', name: name, min: val })
+        });
+        if (resp.redirected) {
+            window.location.href = resp.url;
+        } else if (resp.ok) {
+            window.location.reload();
+        } else {
+            alert('Failed to save min (server error)');
+        }
     } catch (e) {
         alert('Failed to save min for ' + name);
     }
@@ -138,7 +148,7 @@ async function saveMin(name) {
 
 // Run a motor for given duration using watchdog keepalive
 // start sending set commands for a motor; durationSec optional
-function startMotor(name, dir, power, intervalMs, durationSec) {
+function startMotor(name, dir, power, durationSec) {
     const st = _ensureMotorState(name);
     // cancel existing
     st.gen += 1;
@@ -148,7 +158,7 @@ function startMotor(name, dir, power, intervalMs, durationSec) {
 
     const myGen = st.gen;
     // send once immediately
-    dispatchCommand('set', { name: name, dir: dir, power: power }, false); // never allow fallback
+    dispatchCommand('set', { name: name, dir: dir, power: power }); // never allow fallback
 
     // schedule periodic keepalive updates
     st.intervalId = setInterval(function () {
@@ -157,8 +167,8 @@ function startMotor(name, dir, power, intervalMs, durationSec) {
             st.intervalId = null;
             return;
         }
-        dispatchCommand('set', { name: name, dir: dir, power: power }, false); // never allow fallback
-    }, intervalMs || 50);
+        dispatchCommand('set', { name: name, dir: dir, power: power }); // never allow fallback
+    }, 50);
 
     // schedule stop after duration if provided
     if (durationSec && durationSec > 0) {
@@ -181,5 +191,5 @@ function runMotor(name, dir) {
     let duration = parseFloat(document.getElementById(name + "_duration").value);
     let powerPct = parseInt(document.getElementById(name + "_power").value);
     let power = Math.max(0, Math.min(1, powerPct / 100));
-    startMotor(name, dir, power, 50, duration);
+    startMotor(name, dir, power, duration);
 }

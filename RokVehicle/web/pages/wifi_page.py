@@ -37,35 +37,8 @@ def build_wifi_page(cfg, scan_results=None, status_info=None):
         else:
             status_html = f"<div style='background:#ffcdd2;color:#b71c1c;padding:8px 0 8px 0;margin-bottom:12px;border-radius:6px;font-weight:bold;'>Not connected to WiFi</div>"
 
-    # Scan results modal
+    # Scan modal and scan logic removed
     scan_modal = ""
-    if scan_results is not None:
-        scan_modal = """
-        <div id='scan_modal' style='position:fixed;top:0;left:0;width:100vw;height:100vh;background:#0008;z-index:1000;display:flex;align-items:center;justify-content:center;'>
-            <div style='background:#fff;padding:24px 32px;border-radius:10px;max-width:90vw;'>
-                <h3>Select WiFi Network</h3>
-                <ul style='list-style:none;padding:0;'>
-        """
-        for net in scan_results:
-            ssid = net.get('ssid','')
-            enc = '🔒' if net.get('secure') else ''
-            scan_modal += f"<li style='margin-bottom:8px;'><button onclick=\"selectSSID('{ssid}')\" style='padding:4px 12px;'>{ssid} {enc}</button></li>"
-        scan_modal += """
-                </ul>
-                <button onclick="closeScanModal()" style='margin-top:12px;'>Cancel</button>
-            </div>
-        </div>
-        <script>
-        function selectSSID(ssid) {
-            document.getElementById('ssid_input').value = ssid;
-            document.getElementById('wifipass_input').value = '';
-            closeScanModal();
-        }
-        function closeScanModal() {
-            document.getElementById('scan_modal').remove();
-        }
-        </script>
-        """
 
     # Load WiFi page HTML template and inject values
     try:
@@ -95,6 +68,7 @@ def build_wifi_page(cfg, scan_results=None, status_info=None):
     html = html.replace("{{ static_mask }}", static_mask)
     html = html.replace("{{ static_gw }}", static_gw)
     html = html.replace("{{ static_dns }}", static_dns)
+    # scan_modal is now always empty
     html = html.replace("{{ scan_modal }}", scan_modal)
     return html
 
@@ -166,28 +140,3 @@ def handle_post(body, cfg):
 
     # Redirect to GET /wifi
     return cfg, "/wifi"
-# --- WiFi scan endpoint ---
-def handle_wifi_scan():
-    nets = []
-    try:
-        import network, utime
-        sta = network.WLAN(network.STA_IF)
-        sta.active(False)
-        utime.sleep_ms(500)
-        sta.active(True)
-        utime.sleep_ms(500)
-        scan = sta.scan()
-        utime.sleep_ms(10)  # yield to scheduler
-        seen = set()
-        for net in scan:
-            ssid = net[0].decode() if isinstance(net[0], bytes) else str(net[0])
-            if ssid and ssid not in seen:
-                secure = net[4] > 0
-                nets.append({'ssid': ssid, 'secure': secure})
-                seen.add(ssid)
-    except Exception as e:
-        pass
-    # Render only the modal
-    html = build_wifi_page(load_config(), scan_results=nets)
-    import ujson as json
-    return "200 OK", "application/json", json.dumps({'html': html})

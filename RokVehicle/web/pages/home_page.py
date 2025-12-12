@@ -22,31 +22,23 @@ def get_ip_address():
 def render_home_page():
     """Generate HTML for the home page."""
 
-    print("[DEBUG] Entered render_home_page")
     ip = get_ip_address()
-    print("[DEBUG] Got IP:", ip)
     # Load header/nav HTML and inject vehicle_name (placeholder, will update via JS)
     try:
-        print("[DEBUG] Opening header_nav.html")
         with open("web/pages/assets/header_nav.html", "r") as f:
             header_nav = f.read().replace("{{ vehicle_name }}", "Loading...")
-        print("[DEBUG] Loaded header_nav.html")
     except Exception as e:
-        print("[ERROR] Failed to load header_nav.html:", e)
         header_nav = "<div style='background:#222;color:#fff;padding:12px;text-align:center'>Rokenbok Vehicle Control<br><span style='color:#f9e79f'>Loading...</span></div>"
 
     try:
-        print("[DEBUG] Opening home_page.html")
         with open("web/pages/assets/home_page.html", "r") as f:
             html = f.read()
-        print("[DEBUG] Loaded home_page.html")
     except Exception as e:
         print("[ERROR] Failed to load home_page.html:", e)
         html = "<html><body><h2>Home page asset missing</h2></body></html>"
 
     html = html.replace("{{ header_nav }}", header_nav)
     html = html.replace("{{ ip }}", ip)
-    print("[DEBUG] Returning home page HTML")
     return html
 
 

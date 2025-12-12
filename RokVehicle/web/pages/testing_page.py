@@ -27,12 +27,15 @@ def handle_get():
 	cfg, vtype, info = get_vehicle_info()
 	vehicle_name = cfg.get("vehicleName") or ""
 
-	# Build motor control HTML dynamically
-	motors = info.get("motor_map", {}) if info else {}
+	# Build motor list from vehicle type
+	motor_names = []
+	if info:
+		motor_names.extend(info.get("axis_motors", []))
+		motor_names.extend(info.get("motor_functions", []))
 	motor_min_cfg = cfg.get("motor_min", {})
 	motor_reversed_cfg = cfg.get("motor_reversed", {})
 	motor_html = ""
-	for name in motors.keys():
+	for name in motor_names:
 		min_val = motor_min_cfg.get(name, 40000)
 		reversed_val = motor_reversed_cfg.get(name, False)
 		checked = "checked" if reversed_val else ""
@@ -96,14 +99,8 @@ def handle_post(body, cfg):
 
 	import control.motor_controller as mc
 
-	# Debug: log any non-save_min POSTs so we can trace old clients still POSTing
-	if action and action != 'save_min':
-		try:
-			print("Ignored POST to /testing - action:", action, "body:", fields)
-		except Exception:
-			pass
-
-	# Save per-motor minimum
+	# Handle config updates via POST only
+	updated = False
 	if action == 'save_min':
 		name = fields.get('name')
 		try:
@@ -111,20 +108,16 @@ def handle_post(body, cfg):
 		except Exception:
 			minv = 40000
 		mc.motor_controller.update_min_power(name, minv)
-
-	# Save per-motor reversed
-	if action == 'save_reversed':
+		updated = True
+	elif action == 'save_reversed':
 		name = fields.get('name')
-		val = bool(fields.get('reversed', False))
-		if 'motor_reversed' not in cfg:
-			cfg['motor_reversed'] = {}
-		cfg['motor_reversed'][name] = val
-		save_config(cfg)
-
-	# Direct stop_all request
-	# Only 'save_min' is supported via POST for this page. All realtime
-	# motor control (set/stop/stop_all) is handled over WebSocket and any
-	# POSTs for those actions are ignored.
-
-	# For this page, config is unchanged; redirect back to testing
+		reversed_val = bool(fields.get('reversed', False))
+		mc.motor_controller.update_reversed(name, reversed_val)
+		updated = True
+	# Reload config to reflect changes
+	if updated:
+		cfg = load_config()
+		# Re-instantiate motor_controller to pick up new config
+		import control.motor_controller as mc_mod
+		mc_mod.motor_controller = mc_mod.MotorController()
 	return (cfg, "/testing")

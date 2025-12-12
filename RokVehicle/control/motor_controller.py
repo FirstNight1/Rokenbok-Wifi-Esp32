@@ -1,14 +1,9 @@
 # control/motor_controller.py
 
-
 import time
 from machine import Pin, PWM
 from variables.vars_store import load_config, save_config
 from variables.vehicle_types import VEHICLE_TYPES
-try:
-    from control.power_manager import power_manager
-except Exception:
-    power_manager = None
 try:
     from control.function_controller import FunctionController
 except Exception:
@@ -17,6 +12,7 @@ except Exception:
 PWM_FREQ = 2000
 MAX_DUTY = 65535
 
+#Pin map controls which pins are used by motors, so motor 1 using pins 1 and 2, etc.
 MOTOR_PIN_MAP = {
     1: (1, 2), #D0 and D1
     2: (3, 4), #D2 and D3
@@ -25,6 +21,7 @@ MOTOR_PIN_MAP = {
 }
 
 class Motor:
+
     def __init__(self, name, motor_num, reversed=False):
         self.name = name
         self.motor_num = motor_num
@@ -44,6 +41,7 @@ class Motor:
         self.pwm_a.duty_u16(0)
         self.pwm_b.duty_u16(0)
         self.running = False
+
 
     def set_output(self, direction, power):
         # power is expected 0..1. A value of 0 means fully off (duty=0).
@@ -73,6 +71,47 @@ class Motor:
 
 
 class MotorController:
+    def update_reversed(self, name, reversed_value):
+        """Update the reversed flag for a named motor and persist in config."""
+        print(f"[DEBUG] update_reversed called: name={name}, reversed_value={reversed_value}")
+        # Update in-memory value
+        if name in self.axis_motors:
+            self.axis_motors[name].reversed = bool(reversed_value)
+            print(f"[DEBUG] axis_motors[{name}].reversed set to {self.axis_motors[name].reversed}")
+        elif name in self.motor_functions:
+            self.motor_functions[name].reversed = bool(reversed_value)
+            print(f"[DEBUG] motor_functions[{name}].reversed set to {self.motor_functions[name].reversed}")
+        else:
+            print(f"[DEBUG] Motor {name} not found in axis_motors or motor_functions!")
+            return False
+
+        # Persist to config
+        cfg = load_config()
+        print(f"[DEBUG] Config before update: {cfg}")
+        mr = cfg.get("motor_reversed")
+        if not isinstance(mr, dict):
+            mr = {}
+        mr[name] = bool(reversed_value)
+        cfg["motor_reversed"] = mr
+        try:
+            save_config(cfg)
+            print(f"[DEBUG] Config after update: {cfg}")
+        except Exception as e:
+            print(f"[DEBUG] Exception saving config: {e}")
+        return True
+    def stop_motor(self, name):
+        """Stop a motor by name, whether axis or function motor."""
+        if name in self.axis_motors:
+            self.axis_motors[name].stop()
+        elif name in self.motor_functions:
+            self.motor_functions[name].stop()
+    def set_motor(self, name, direction, power):
+        if name in self.axis_motors:
+            self.axis_motors[name].set_output(direction, power)
+        elif name in self.motor_functions:
+            self.motor_functions[name].set_output(direction, power)
+        else:
+            print(f"  -> motor {name} not found!")
     def __init__(self):
         cfg = load_config()
         vtype = cfg.get("vehicleType")
@@ -104,7 +143,12 @@ class MotorController:
 
         # Load per-motor min power values from config (if present)
         motor_min_cfg = cfg.get("motor_min", {})
-        for name, m in {**self.axis_motors, **self.motor_functions}.items():
+        for name, m in self.axis_motors.items():
+            try:
+                m.min_power = int(motor_min_cfg.get(name, 40000))
+            except Exception:
+                m.min_power = 40000
+        for name, m in self.motor_functions.items():
             try:
                 m.min_power = int(motor_min_cfg.get(name, 40000))
             except Exception:
@@ -156,24 +200,23 @@ class MotorController:
             for fname in self.functions:
                 self.function_controller.set_function(fname, False)
 
-    def update_min_power(self, name, min_value):
-        # ...existing code...
-
     # --------------------
     # Public API
     # --------------------
 
-    # (Obsolete set_motor, stop_motor, stop_all removed; use set_axis, set_motor_function, set_function, stop_axis, stop_motor_function, stop_all)
-
     def update_min_power(self, name, min_value):
-        """Update the minimum duty for a named motor and persist in config."""
-        all_motors = {**self.axis_motors, **self.motor_functions}
+        print(f"[DEBUG] update_min_power called: name={name}, min_value={min_value}")
+        all_motors = {}
+        all_motors.update(self.axis_motors)
+        all_motors.update(self.motor_functions)
         if name not in all_motors:
+            print(f"[DEBUG] Motor {name} not found in axis_motors or motor_functions!")
             return False
 
         try:
             min_val = int(min_value)
-        except Exception:
+        except Exception as e:
+            print(f"[DEBUG] Exception converting min_value: {e}")
             return False
 
         # clamp reasonable range
@@ -181,30 +224,32 @@ class MotorController:
 
         # update instance
         all_motors[name].min_power = min_val
+        print(f"[DEBUG] {name}.min_power set to {min_val}")
 
         # persist to config
         cfg = load_config()
-        mm = cfg.get("motor_min") or {}
+        print(f"[DEBUG] Config before update: {cfg}")
+        mm = cfg.get("motor_min")
+        if not isinstance(mm, dict):
+            mm = {}
         mm[name] = min_val
         cfg["motor_min"] = mm
         try:
             save_config(cfg)
-        except Exception:
-            pass
+            print(f"[DEBUG] Config after update: {cfg}")
+        except Exception as e:
+            print(f"[DEBUG] Exception saving config: {e}")
 
         return True
 
     # --------------------
     # Watchdog (Timer IRQ)
     # --------------------
-
-
     async def watchdog(self):
-        """Async watchdog task; periodically checks motors and stops any that
-        haven't been updated within self.timeout_ms. This must be scheduled on
-        the same asyncio loop that handles WebSocket/HTTP so PWM calls are
-        executed in the same thread and avoid IRQ concurrency.
-        """
+        # Async watchdog task; periodically checks motors and stops any that
+        # haven't been updated within self.timeout_ms. This must be scheduled on
+        # the same asyncio loop that handles WebSocket/HTTP so PWM calls are
+        # executed in the same thread and avoid IRQ concurrency.
         try:
             import uasyncio as asyncio
         except Exception:
@@ -229,6 +274,3 @@ class MotorController:
                 break
 
 motor_controller = MotorController()
-# On startup, if not asleep, ensure D8 is high
-if power_manager and not power_manager.is_asleep():
-    power_manager.wake()

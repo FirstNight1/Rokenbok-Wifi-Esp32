@@ -35,14 +35,7 @@
             <input type="submit" value="Save" onclick="return validateWifiForm();">
         </form>
     </div>
-    <!-- scan_modal removed -->
     <script>
-        function scanNetworks() {
-            fetch('/wifi_scan').then(r => r.json()).then(js => {
-                // Re-render page with scan results
-                document.body.innerHTML += js.html;
-            });
-        }
         function toggleShowPW() {
             var pw = document.getElementById('wifipass_input');
             var btn = document.getElementById('showpw_btn');

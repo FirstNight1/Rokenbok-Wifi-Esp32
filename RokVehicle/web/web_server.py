@@ -5,7 +5,6 @@ from web.pages import wifi_page, admin_page, home_page, testing_page
 from variables.vars_store import load_config
 
 
-import os
 import hashlib
 try:
     import esp32
@@ -17,7 +16,6 @@ WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
 WS_CLIENT = None  # Only one controlling websocket client
-BUSY_FORCE_DISCONNECT = False  # Only one busy flag
 
 ROUTES = {
     "/": home_page,
@@ -37,7 +35,6 @@ async def handle_client(reader, writer):
             return
 
         line = req_line.decode().strip()
-        print("REQ:", line)
 
         # Chrome HTTP/2 probe, reject immediately
         if line.startswith("PRI * HTTP/2.0"):
@@ -62,7 +59,6 @@ async def handle_client(reader, writer):
 
         # --- Read headers until blank line ---
         headers = {}
-        cookies = {}
         while True:
             hdr = await reader.readline()
             if not hdr or hdr == b"\r\n":
@@ -74,11 +70,6 @@ async def handle_client(reader, writer):
             if ":" in line:
                 k, v = line.split(":", 1)
                 headers[k.strip().lower()] = v.strip()
-                if k.strip().lower() == 'cookie':
-                    for c in v.strip().split(';'):
-                        if '=' in c:
-                            ck, cv = c.strip().split('=',1)
-                            cookies[ck.strip()] = cv.strip()
 
         # If this is a WebSocket upgrade, handle it here (path /ws)
         if headers.get('upgrade') == 'websocket' and hashlib and 'sec-websocket-key' in headers:
@@ -138,15 +129,6 @@ async def handle_client(reader, writer):
 
 
 
-        # --- /wifi_scan endpoint ---
-        if path == '/wifi_scan':
-            status, ctype, body = wifi_page.handle_wifi_scan()
-            writer.write(f"HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\n\r\n")
-            writer.write(body)
-            await writer.drain()
-            await writer.aclose()
-            return
-
         # --- /status endpoint ---
         if path == '/status':
             # busy if vehicle is being controlled
@@ -176,15 +158,7 @@ async def handle_client(reader, writer):
             await writer.aclose()
             return
 
-        # --- /admin?force_disconnect=1 ---
-        if path == '/admin' and 'force_disconnect=1' in query_string:
-            global BUSY_FORCE_DISCONNECT
-            BUSY_FORCE_DISCONNECT = True
-            # respond immediately
-            writer.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nForce disconnect sent.")
-            await writer.drain()
-            await writer.aclose()
-            return
+
 
 
 
@@ -223,9 +197,7 @@ async def handle_client(reader, writer):
 
 
 async def start_web_server():
-    print("Starting async web server on port 80...")
     server = await asyncio.start_server(handle_client, "0.0.0.0", 80)
-    print("Async web server running.")
     return server
 
 
@@ -293,7 +265,6 @@ async def _handle_websocket(reader, writer, headers, path):
         import ubinascii
         accept = ubinascii.b2a_base64(sha.digest()).decode().strip()
     except Exception as e:
-        print('WebSocket handshake failed:', e)
         try:
             await writer.aclose()
         except Exception:
@@ -309,33 +280,27 @@ async def _handle_websocket(reader, writer, headers, path):
     writer.write(resp)
     await writer.drain()
 
-    print('WebSocket connection established', path)
 
 
     # Only allow one controlling client at a time
-    global WS_CLIENT, BUSY_FORCE_DISCONNECT
+    global WS_CLIENT
     if WS_CLIENT:
         await _ws_send_text(writer, '{"error":"Vehicle is busy"}')
         await writer.aclose()
         return
     WS_CLIENT = (writer, reader)
-    BUSY_FORCE_DISCONNECT = False
 
     # websocket message loop
 
     try:
         import control.motor_controller as mc
-    except Exception:
+    except Exception as e:
         mc = None
+
 
 
     while True:
         try:
-            # Check for force disconnect
-            if BUSY_FORCE_DISCONNECT:
-                BUSY_FORCE_DISCONNECT = False
-                await _ws_send_text(writer, '{"error":"Force disconnect by admin"}')
-                break
             frame = await _ws_recv_frame(reader)
             if not frame:
                 break
@@ -344,7 +309,6 @@ async def _handle_websocket(reader, writer, headers, path):
             if opcode == 8:
                 break
             if opcode == 9:
-                # ping - reply pong
                 await _ws_send_text(writer, '')
                 continue
             if opcode != 1:
@@ -352,19 +316,18 @@ async def _handle_websocket(reader, writer, headers, path):
 
             try:
                 text = data.decode()
-            except Exception:
+            except Exception as e:
                 continue
 
             # parse JSON command
             import json
             try:
                 pkt = json.loads(text)
-            except Exception:
+            except Exception as e:
                 pkt = None
 
             if not pkt or not isinstance(pkt, dict):
                 continue
-
 
             # dispatch commands (set/stop/stop_all)
             action = pkt.get('action')
@@ -379,7 +342,6 @@ async def _handle_websocket(reader, writer, headers, path):
                 mc.motor_controller.stop_all()
 
         except Exception as e:
-            print('WebSocket loop error:', e)
             break
 
     try:
@@ -440,5 +402,4 @@ def run():
         pass
 
 
-    print("Web server background tasks scheduled.")
     loop.run_forever()
