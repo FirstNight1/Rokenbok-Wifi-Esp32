@@ -56,5 +56,11 @@ Go to the Play screen via the header, or the Play Now button on the home screen,
 - [ ] Add setting a password to AP mode rather than always using 1234567890
 - [ ] Add a Readme.md in RokVehicle on flashing MicroPython and this program onto the board
 - [ ] Add documentation in this Readme.md on the Play page, using gamepads, assigning control methodology and buttons, using axis controllers, and connecting Bluetooth gamepads directly to the vehicle
+- [ ] Implement Play page
+- [ ] Implement wifi scanning
+- [ ] Implement direct bluetooth controller usage (BLE only)
+- [ ] Test controller mapping and functionality on Play page
 - [ ] FPV conversion instructions and setup
+- [ ] FPV programming
+- [ ] Test FPV stream integration locally on play page
 - [ ] Play server instructions and setup

@@ -4,6 +4,7 @@ import time
 from machine import Pin, PWM
 from variables.vars_store import load_config, save_config
 from variables.vehicle_types import VEHICLE_TYPES
+
 try:
     from control.function_controller import FunctionController
 except Exception:
@@ -12,15 +13,27 @@ except Exception:
 PWM_FREQ = 2000
 MAX_DUTY = 65535
 
-#Pin map controls which pins are used by motors, so motor 1 using pins 1 and 2, etc.
+# Pin map controls which pins are used by motors, so motor 1 using pins 1 and 2, etc.
 MOTOR_PIN_MAP = {
-    1: (1, 2), #D0 and D1
-    2: (3, 4), #D2 and D3
-    3: (5, 6), #D4 and D5
-    4: (43, 44), #D6 and D7
+    1: (1, 2),  # D0 and D1
+    2: (3, 4),  # D2 and D3
+    3: (5, 6),  # D4 and D5
+    4: (43, 44),  # D6 and D7
+    5: (7, 8),  # D8 and D9
 }
 
+
 class Motor:
+    def deinit(self):
+        # Deinitialize PWM objects to free hardware channels
+        try:
+            self.pwm_a.deinit()
+        except Exception:
+            pass
+        try:
+            self.pwm_b.deinit()
+        except Exception:
+            pass
 
     def __init__(self, name, motor_num, reversed=False):
         self.name = name
@@ -42,76 +55,120 @@ class Motor:
         self.pwm_b.duty_u16(0)
         self.running = False
 
-
-    def set_output(self, direction, power):
-        # power is expected 0..1. A value of 0 means fully off (duty=0).
-        # For >0 power we map into [min_power .. MAX_DUTY].
+    def set_output_axis(self, direction, power):
+        # Axis motor: power is 0..1, mapped to [min_power..MAX_DUTY]
         if power <= 0:
             duty = 0
         else:
             min_p = self.min_power if self.min_power is not None else 40000
-            # clamp power
             p = max(0.0, min(1.0, float(power)))
             duty = int(min_p + p * (MAX_DUTY - min_p))
-        forward = (direction == "fwd")
-
+        forward = direction == "fwd"
         if self.reversed:
             forward = not forward
-
         if forward:
             self.pwm_a.duty_u16(duty)
             self.pwm_b.duty_u16(0)
         else:
             self.pwm_a.duty_u16(0)
             self.pwm_b.duty_u16(duty)
-
         self.running = True
         self.last_update_ms = time.ticks_ms()
 
+    def set_output_function(self, direction, on):
+        # Function motor: on=True sets min_power (with fallback), off sets 0
+        min_p = self.min_power if self.min_power is not None else 40000
+        duty = int(min_p if on else 0)
+        forward = direction == "fwd"
+        if self.reversed:
+            forward = not forward
+        if forward:
+            self.pwm_a.duty_u16(duty)
+            self.pwm_b.duty_u16(0)
+        else:
+            self.pwm_a.duty_u16(0)
+            self.pwm_b.duty_u16(duty)
+        self.running = True if on else False
+        self.last_update_ms = time.ticks_ms()
+
+    def set_output(self, direction, value, mode="axis"):
+        # Dispatcher: mode is "axis" or "function"
+        if mode == "function":
+            self.set_output_function(direction, bool(value))
+        else:
+            self.set_output_axis(direction, value)
 
 
 class MotorController:
-    def update_reversed(self, name, reversed_value):
-        """Update the reversed flag for a named motor and persist in config."""
-        print(f"[DEBUG] update_reversed called: name={name}, reversed_value={reversed_value}")
-        # Update in-memory value
-        if name in self.axis_motors:
-            self.axis_motors[name].reversed = bool(reversed_value)
-            print(f"[DEBUG] axis_motors[{name}].reversed set to {self.axis_motors[name].reversed}")
-        elif name in self.motor_functions:
-            self.motor_functions[name].reversed = bool(reversed_value)
-            print(f"[DEBUG] motor_functions[{name}].reversed set to {self.motor_functions[name].reversed}")
-        else:
-            print(f"[DEBUG] Motor {name} not found in axis_motors or motor_functions!")
-            return False
+    def deinit_all(self):
+        # Deinitialize all motors' PWM objects
+        for m in list(getattr(self, "axis_motors", {}).values()):
+            try:
+                m.deinit()
+            except Exception:
+                pass
+        for m in list(getattr(self, "motor_functions", {}).values()):
+            try:
+                m.deinit()
+            except Exception:
+                pass
 
-        # Persist to config
+    def get_motor_assignments(self):
+        """Return a dict mapping motor name to motor number and pin assignment."""
+        assignments = {}
+        for name, m in self.axis_motors.items():
+            assignments[name] = {
+                "motor_num": m.motor_num,
+                "pins": MOTOR_PIN_MAP.get(m.motor_num, (None, None)),
+            }
+        for name, m in self.motor_functions.items():
+            assignments[name] = {
+                "motor_num": m.motor_num,
+                "pins": MOTOR_PIN_MAP.get(m.motor_num, (None, None)),
+            }
+        return assignments
+
+    def set_motor_assignments(self, assignments):
+        """Update motor name to motor number mapping. assignments: {name: motor_num}. Validates uniqueness and range."""
+        # Validate uniqueness
+        nums = list(assignments.values())
+        if len(nums) != len(set(nums)):
+            raise ValueError("Motor numbers must be unique.")
+        # Validate all numbers are in MOTOR_PIN_MAP
+        for n in nums:
+            if n not in MOTOR_PIN_MAP:
+                raise ValueError(f"Invalid motor number: {n}")
+        # Update config
         cfg = load_config()
-        print(f"[DEBUG] Config before update: {cfg}")
-        mr = cfg.get("motor_reversed")
-        if not isinstance(mr, dict):
-            mr = {}
-        mr[name] = bool(reversed_value)
-        cfg["motor_reversed"] = mr
-        try:
-            save_config(cfg)
-            print(f"[DEBUG] Config after update: {cfg}")
-        except Exception as e:
-            print(f"[DEBUG] Exception saving config: {e}")
+        # MicroPython: ensure assignments is a plain dict, not a subclass
+        cfg["motor_numbers"] = dict((str(k), int(v)) for k, v in assignments.items())
+        save_config(cfg)
+        # Deinit all PWM channels before re-instantiating
+        self.deinit_all()
+        # Re-instantiate the global motor_controller so all references are fresh
+        import sys
+
+        thismod = sys.modules[__name__]
+        thismod.motor_controller = MotorController()
         return True
+
     def stop_motor(self, name):
         """Stop a motor by name, whether axis or function motor."""
         if name in self.axis_motors:
             self.axis_motors[name].stop()
         elif name in self.motor_functions:
             self.motor_functions[name].stop()
+
     def set_motor(self, name, direction, power):
         if name in self.axis_motors:
-            self.axis_motors[name].set_output(direction, power)
+            self.axis_motors[name].set_output(direction, power, mode="axis")
         elif name in self.motor_functions:
-            self.motor_functions[name].set_output(direction, power)
+            # For function motors, treat any power >= 1.0 as ON, else OFF
+            m = self.motor_functions[name]
+            m.set_output(direction, power >= 1.0, mode="function")
         else:
             print(f"  -> motor {name} not found!")
+
     def __init__(self):
         cfg = load_config()
         vtype = cfg.get("vehicleType")
@@ -119,23 +176,29 @@ class MotorController:
         if not vinfo:
             raise ValueError("Vehicle type not found")
 
+        # Get custom motor number mapping if present
+        motor_numbers = cfg.get("motor_numbers", {})
+
         # Axis motors (continuous, axis-assignable)
         self.axis_motors = {}
+        motor_reversed_cfg = cfg.get("motor_reversed", {})
         for idx, name in enumerate(vinfo.get("axis_motors", [])):
-            # Assign motor numbers 1,2 for axis motors by default
-            self.axis_motors[name] = Motor(name, idx+1)
+            # Use custom mapping if present, else default
+            motor_num = int(motor_numbers.get(name, idx + 1))
+            reversed_val = bool(motor_reversed_cfg.get(name, False))
+            self.axis_motors[name] = Motor(name, motor_num, reversed=reversed_val)
 
         # Motor functions (button-assignable, fwd/rev, on/off)
         self.motor_functions = {}
         for idx, name in enumerate(vinfo.get("motor_functions", [])):
-            # Assign motor numbers 3,4... for motor functions by default
-            self.motor_functions[name] = Motor(name, idx+3)
+            motor_num = int(motor_numbers.get(name, idx + 3))
+            reversed_val = bool(motor_reversed_cfg.get(name, False))
+            self.motor_functions[name] = Motor(name, motor_num, reversed=reversed_val)
 
         # Logic functions (on/off pins, e.g., lights, siren)
         self.functions = {}
         if FunctionController and vinfo.get("functions"):
-            # Assign pins 10+ for logic functions (customize as needed)
-            pin_map = {fname: 10+idx for idx, fname in enumerate(vinfo["functions"])}
+            pin_map = {fname: 10 + idx for idx, fname in enumerate(vinfo["functions"])}
             self.function_controller = FunctionController(pin_map)
             self.functions = {fname: False for fname in vinfo["functions"]}
         else:
@@ -201,48 +264,6 @@ class MotorController:
                 self.function_controller.set_function(fname, False)
 
     # --------------------
-    # Public API
-    # --------------------
-
-    def update_min_power(self, name, min_value):
-        print(f"[DEBUG] update_min_power called: name={name}, min_value={min_value}")
-        all_motors = {}
-        all_motors.update(self.axis_motors)
-        all_motors.update(self.motor_functions)
-        if name not in all_motors:
-            print(f"[DEBUG] Motor {name} not found in axis_motors or motor_functions!")
-            return False
-
-        try:
-            min_val = int(min_value)
-        except Exception as e:
-            print(f"[DEBUG] Exception converting min_value: {e}")
-            return False
-
-        # clamp reasonable range
-        min_val = max(0, min(MAX_DUTY - 1, min_val))
-
-        # update instance
-        all_motors[name].min_power = min_val
-        print(f"[DEBUG] {name}.min_power set to {min_val}")
-
-        # persist to config
-        cfg = load_config()
-        print(f"[DEBUG] Config before update: {cfg}")
-        mm = cfg.get("motor_min")
-        if not isinstance(mm, dict):
-            mm = {}
-        mm[name] = min_val
-        cfg["motor_min"] = mm
-        try:
-            save_config(cfg)
-            print(f"[DEBUG] Config after update: {cfg}")
-        except Exception as e:
-            print(f"[DEBUG] Exception saving config: {e}")
-
-        return True
-
-    # --------------------
     # Watchdog (Timer IRQ)
     # --------------------
     async def watchdog(self):
@@ -261,7 +282,9 @@ class MotorController:
         interval = min(0.1, self.timeout_ms / 1000.0)
         while True:
             now = time.ticks_ms()
-            for m in list(self.axis_motors.values()) + list(self.motor_functions.values()):
+            for m in list(self.axis_motors.values()) + list(
+                self.motor_functions.values()
+            ):
                 if m.running:
                     try:
                         if time.ticks_diff(now, m.last_update_ms) > self.timeout_ms:
@@ -272,5 +295,6 @@ class MotorController:
                 await asyncio.sleep(interval)
             except Exception:
                 break
+
 
 motor_controller = MotorController()

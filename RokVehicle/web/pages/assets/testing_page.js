@@ -1,21 +1,77 @@
-// Save reversed state for a motor using POST (only on Save button click)
-async function saveReversed(name) {
-    let checked = document.getElementById(name + '_reversed').checked;
+// --- Motor Number Assignment Logic ---
+window.addEventListener('DOMContentLoaded', function () {
+    // Attach change listeners to all motor number dropdowns
+    const dropdowns = document.querySelectorAll('select[id$="_motor_num"]');
+    dropdowns.forEach(dd => {
+        dd.addEventListener('change', function (e) {
+            // Prevent duplicate assignments: if another dropdown has this value, clear it
+            const val = parseInt(dd.value);
+            dropdowns.forEach(other => {
+                if (other !== dd && parseInt(other.value) === val) {
+                    other.value = '';
+                }
+            });
+        });
+    });
+    // No global save button needed; now each motor has its own Save button
+});
+
+async function saveMotorNumbers() {
+    // Gather assignments
+    const dropdowns = document.querySelectorAll('select[id$="_motor_num"]');
+    const assignments = {};
+    let used = new Set();
+    let valid = true;
+    dropdowns.forEach(dd => {
+        const name = dd.id.replace('_motor_num', '');
+        const val = parseInt(dd.value);
+        if (!val || used.has(val)) {
+            valid = false;
+            dd.style.background = '#fbb';
+        } else {
+            dd.style.background = '';
+            assignments[name] = val;
+            used.add(val);
+        }
+    });
+    if (!valid || Object.keys(assignments).length !== dropdowns.length) {
+        alert('Each motor must have a unique motor number assigned.');
+        return;
+    }
     try {
         const resp = await fetch('/testing', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'save_reversed', name: name, reversed: checked })
+            body: JSON.stringify({ action: 'save_motor_numbers', assignments })
         });
         if (resp.redirected) {
             window.location.href = resp.url;
         } else if (resp.ok) {
             window.location.reload();
         } else {
-            alert('Failed to save reversed (server error)');
+            alert('Failed to save motor assignments (server error)');
         }
     } catch (e) {
-        alert('Failed to save reversed for ' + name);
+        alert('Failed to save motor assignments');
+    }
+}
+// Toggle reversed state for a motor using POST
+async function toggleReversed(name) {
+    try {
+        const resp = await fetch('/testing', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'toggle_reversed', name: name })
+        });
+        if (resp.redirected) {
+            window.location.href = resp.url;
+        } else if (resp.ok) {
+            window.location.reload();
+        } else {
+            alert('Failed to toggle reversed (server error)');
+        }
+    } catch (e) {
+        alert('Failed to toggle reversed for ' + name);
     }
 }
 // WebSocket connection for realtime control. Browser cannot send raw
@@ -125,9 +181,11 @@ function stopAllLocal() {
     } catch (e) { }
 }
 
-// Save minimum duty for a motor using POST only
+// Save minimum duty for a motor using POST only (scale 1-65)
 async function saveMin(name) {
     let val = parseInt(document.getElementById(name + '_min').value);
+    if (isNaN(val) || val < 1) val = 1;
+    if (val > 65) val = 65;
     try {
         const resp = await fetch('/testing', {
             method: 'POST',
@@ -181,15 +239,24 @@ function startMotor(name, dir, power, durationSec) {
             try { if (st.intervalId) clearInterval(st.intervalId); } catch (e) { }
             st.intervalId = null;
             st.timeoutId = null;
+            // Prevent further keepalives by bumping gen
+            st.gen += 1;
             sendStop(name);
         }, durationSec * 1000);
     }
 }
 
 // High-level UI run wrapper (keeps original API)
+// List of function motors (populated by backend)
+window.functionMotors = window.functionMotors || [];
+
 function runMotor(name, dir) {
     let duration = parseFloat(document.getElementById(name + "_duration").value);
-    let powerPct = parseInt(document.getElementById(name + "_power").value);
-    let power = Math.max(0, Math.min(1, powerPct / 100));
+    let isFunction = window.functionMotors && window.functionMotors.indexOf(name) !== -1;
+    let power = 1.0;
+    if (!isFunction) {
+        let powerPct = parseInt(document.getElementById(name + "_power").value);
+        power = Math.max(0, Math.min(1, powerPct / 100));
+    }
     startMotor(name, dir, power, duration);
 }

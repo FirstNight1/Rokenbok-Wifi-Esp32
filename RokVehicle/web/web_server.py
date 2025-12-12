@@ -1,6 +1,7 @@
 
 
 import uasyncio as asyncio
+import sys
 from web.pages import wifi_page, admin_page, home_page, testing_page
 from variables.vars_store import load_config
 
@@ -194,6 +195,7 @@ async def handle_client(reader, writer):
                 return
     except Exception as e:
         print("Async Web Server Error:", e)
+        sys.print_exception(e)
 
 
 async def start_web_server():
@@ -335,10 +337,13 @@ async def _handle_websocket(reader, writer, headers, path):
                 name = pkt.get('name')
                 dir = pkt.get('dir', 'fwd')
                 power = float(pkt.get('power', 0))
+                print(f"[WS DEBUG] set: name={name}, dir={dir}, power={power}")
                 mc.motor_controller.set_motor(name, dir, power)
             elif mc and action == 'stop':
+                print(f"[WS DEBUG] stop: name={pkt.get('name')}")
                 mc.motor_controller.stop_motor(pkt.get('name'))
             elif mc and action == 'stop_all':
+                print("[WS DEBUG] stop_all")
                 mc.motor_controller.stop_all()
 
         except Exception as e:
