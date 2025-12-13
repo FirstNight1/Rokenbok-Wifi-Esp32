@@ -96,9 +96,11 @@ async def handle_client(reader, writer):
                 base_dir = "."
             # join parts into a single posix-style path
             fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", sub.lstrip("/")])
+            import os
+
             try:
-                with open(fpath, "rb") as fh:
-                    data = fh.read()
+                stat = os.stat(fpath)
+                clen = stat[6]
                 # simple content type detection
                 if fpath.endswith(".js"):
                     ctype = "application/javascript"
@@ -110,26 +112,21 @@ async def handle_client(reader, writer):
                     ctype = "image/jpeg"
                 else:
                     ctype = "application/octet-stream"
-
-                # include content-length and cache-control
-                clen = len(data)
                 cache_hdr = "Cache-Control: no-store"
                 writer.write(
                     f"HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {clen}\r\n{cache_hdr}\r\n\r\n"
                 )
-                # write raw bytes
-                try:
-                    writer.write(data)
-                except Exception:
-                    # fallback: write as decoded text
-                    try:
-                        writer.write(data.decode())
-                    except Exception:
-                        pass
                 await writer.drain()
+                with open(fpath, "rb") as fh:
+                    while True:
+                        chunk = fh.read(1024)
+                        if not chunk:
+                            break
+                        writer.write(chunk)
+                        await writer.drain()
                 await writer.aclose()
                 return
-            except Exception:
+            except Exception as e:
                 # not found - fall through to route handling / redirect
                 pass
 
@@ -155,6 +152,7 @@ async def handle_client(reader, writer):
                 "busy": busy,
                 "battery": None,
                 "mcu_temp": mcu_temp,
+                "project": "RokVehicle",
             }
             import json
 

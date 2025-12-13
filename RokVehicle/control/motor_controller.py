@@ -63,9 +63,11 @@ class Motor:
             min_p = self.min_power if self.min_power is not None else 40000
             p = max(0.0, min(1.0, float(power)))
             duty = int(min_p + p * (MAX_DUTY - min_p))
+
         forward = direction == "fwd"
         if self.reversed:
             forward = not forward
+
         if forward:
             self.pwm_a.duty_u16(duty)
             self.pwm_b.duty_u16(0)
@@ -160,14 +162,15 @@ class MotorController:
             self.motor_functions[name].stop()
 
     def set_motor(self, name, direction, power):
+        # Expect power in 0-100 range
         if name in self.axis_motors:
-            self.axis_motors[name].set_output(direction, power, mode="axis")
+            # Convert 0-100 to 0-1 for internal motor processing
+            normalized_power = power / 100.0
+            self.axis_motors[name].set_output(direction, normalized_power, mode="axis")
         elif name in self.motor_functions:
-            # For function motors, treat any power >= 1.0 as ON, else OFF
+            # For function motors, treat any power >= 1 as ON, else OFF
             m = self.motor_functions[name]
-            m.set_output(direction, power >= 1.0, mode="function")
-        else:
-            print(f"  -> motor {name} not found!")
+            m.set_output(direction, power >= 1, mode="function")
 
     def __init__(self):
         cfg = load_config()
@@ -217,7 +220,7 @@ class MotorController:
             except Exception:
                 m.min_power = 40000
 
-        self.timeout_ms = 200
+        self.timeout_ms = 400
 
     # --------------------
     # Public API

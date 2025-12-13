@@ -2,157 +2,8 @@
 
 <head>
     <title>Play Control</title>
-    <style>
-        body {
-            font-family: Arial;
-            margin: 0;
-            background: #f8f9fa;
-        }
-
-        .main-flex {
-            display: flex;
-            flex-direction: row;
-            min-height: 100vh;
-        }
-
-        .sidebar {
-            width: 340px;
-            background: #fff;
-            border-left: 1px solid #ddd;
-            padding: 24px 18px;
-            box-shadow: -2px 0 8px rgba(44, 62, 80, 0.04);
-            display: flex;
-            flex-direction: column;
-        }
-
-        .sidebar h2 {
-            font-size: 1.3em;
-            margin-bottom: 8px;
-        }
-
-        .sidebar .section {
-            margin-bottom: 24px;
-        }
-
-        .sidebar label {
-            font-weight: 500;
-        }
-
-        .sidebar input[type=text] {
-            width: 80%;
-            margin-bottom: 6px;
-        }
-
-        .sidebar select,
-        .sidebar button {
-            margin-top: 6px;
-        }
-
-        .sidebar .motor-map-list {
-            font-size: 1em;
-            margin: 0 0 8px 0;
-        }
-
-        .sidebar .motor-map-list li {
-            margin-bottom: 2px;
-        }
-
-        .sidebar .view-btns button {
-            margin-right: 8px;
-        }
-
-        .sidebar .pip-flip-btn {
-            margin-left: 12px;
-        }
-
-        .sidebar .save-btn {
-            margin-top: 8px;
-        }
-
-        .sidebar .bt-section {
-            border-top: 1px solid #eee;
-            padding-top: 12px;
-        }
-
-        .sidebar .bt-list {
-            font-size: 0.98em;
-            margin: 6px 0;
-        }
-
-        .sidebar .bt-list li {
-            margin-bottom: 2px;
-        }
-
-        .sidebar .bt-status {
-            font-size: 0.95em;
-            color: #888;
-            margin-top: 4px;
-        }
-
-        .video-area {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #222;
-            position: relative;
-            min-height: 100vh;
-        }
-
-        .video-main,
-        .video-pip {
-            background: #000;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .video-main {
-            position: absolute;
-            top: 32px;
-            left: 32px;
-            width: 70vw;
-            height: 70vh;
-            z-index: 1;
-        }
-
-        .video-pip {
-            position: absolute;
-            bottom: 32px;
-            right: 32px;
-            width: 22vw;
-            height: 22vh;
-            z-index: 2;
-            border: 2px solid #fff;
-        }
-
-        .video-main.flipped {
-            left: unset;
-            right: 32px;
-            top: 32px;
-        }
-
-        .video-pip.flipped {
-            right: unset;
-            left: 32px;
-            bottom: 32px;
-        }
-
-        .video-full {
-            width: 90vw;
-            height: 80vh;
-            border-radius: 12px;
-            background: #000;
-        }
-
-        .video-label {
-            position: absolute;
-            left: 36px;
-            top: 12px;
-            color: #fff;
-            font-size: 1.1em;
-            z-index: 10;
-        }
-    </style>
+    <link rel="stylesheet" href="/assets/play_page.css">
+    <link rel="stylesheet" href="/assets/mapping_modal.css">
     <script src="/assets/play_page.js"></script>
 </head>
 
@@ -160,8 +11,9 @@
     {{ header_nav }}
     <div class="main-flex">
         <div class="video-area" id="video_area">
-            <!-- Video rendering will be handled by JS -->
-            <div id="video_container"></div>
+            <div id="video_container">
+                <!-- Video rendering will be handled by JS -->
+            </div>
         </div>
         <div class="sidebar">
             <div class="section">
@@ -170,23 +22,24 @@
                 <div><b>Type:</b> {{ vehicle_type }}</div>
             </div>
             <div class="section">
-                <h2>Motor Mapping</h2>
+                <h2 id="control_mapping_header">Control Mapping</h2>
                 <div style="margin-bottom:6px;">
                     <span style="font-weight:600;">Current Drive Mode:</span>
                     <span id="drive_mode_indicator" style="color:#1976d2;">{{ drive_mode }}</span>
                 </div>
-                <ul class="motor-map-list">
-                    {{ axis_map_list }}
-                </ul>
-                <button id="toggle_mode_btn" onclick="toggleDriveMode()">Toggle D-Pad/Tank</button>
+                <button id="toggle_mode_btn" class="btn">Toggle D-Pad/Tank</button>
+                <div id="vehicle_status_indicator" class="status-indicator status-disconnected">
+                    Vehicle Disconnected
+                </div>
+                <div id="conn_status" style="display:none"></div>
             </div>
             <div class="section">
                 <h2>View Selection</h2>
                 <div class="view-btns">
-                    <button onclick="setView('area')" id="view_area_btn">Area Camera</button>
-                    <button onclick="setView('fpv')" id="view_fpv_btn">FPV Camera</button>
-                    <button onclick="setView('pip')" id="view_pip_btn">Picture in Picture</button>
-                    <button onclick="flipPIP()" class="pip-flip-btn" id="flip_pip_btn">Flip PIP</button>
+                    <button id="view_area_btn" class="btn">Area Camera</button>
+                    <button id="view_fpv_btn" class="btn">FPV Camera</button>
+                    <button id="view_pip_btn" class="btn">Picture in Picture</button>
+                    <button id="flip_pip_btn" class="btn pip-flip-btn">Flip PIP</button>
                 </div>
                 <div style="margin-top:10px">
                     <label>Area Camera IP:</label><br>
@@ -195,19 +48,21 @@
                     <label>FPV Camera IP:</label><br>
                     <input type="text" id="fpv_ip" value="{{ fpv_ip }}" placeholder="e.g. 192.168.1.101">
                     <br>
-                    <button class="save-btn" onclick="saveCameraIPs()">Save Camera IPs</button>
+                    <button id="save_ips_btn" class="btn save-btn">Save Camera IPs</button>
                 </div>
             </div>
             <div class="section bt-section">
                 <h2>Local Controller</h2>
                 <div style="margin-bottom:8px;">
-                    <button id="rescan_gamepads_btn" onclick="rescanGamepads()">Rescan</button>
-                </div>
-                <div style="margin-bottom:8px;">
                     <label for="gamepad_select">Select Controller:</label><br>
                     <select id="gamepad_select" style="width:90%;margin-top:4px;"></select>
                 </div>
-                <div id="gamepad_status" style="font-size:0.95em;color:#888;">No controllers found.</div>
+                <div id="gamepad_status" style="font-size:0.95em;color:#888;">Press a button on the controller to
+                    detect.</div>
+                <button id="rescan_gamepads_btn" class="btn">Rescan</button>
+            </div>
+            <div id="browser_controller_section" class="section bt-section">
+                <!-- Gamepad state will be rendered here -->
             </div>
             <div class="section bt-section">
                 <h2>Bluetooth Controller</h2>
@@ -215,14 +70,6 @@
             </div>
         </div>
     </div>
-    <script>
-        // Placeholder JS hooks for view selection, camera IPs, PIP flip, BT scan
-        function setView(mode) { /* TODO: implement view switching */ }
-        function flipPIP() { /* TODO: implement PIP flip */ }
-        function saveCameraIPs() { /* TODO: implement save camera IPs */ }
-        function scanBT() { /* TODO: implement BT scan */ }
-        function toggleDriveMode() { /* TODO: implement D-Pad/Tank toggle */ }
-    </script>
 </body>
 
 </html>

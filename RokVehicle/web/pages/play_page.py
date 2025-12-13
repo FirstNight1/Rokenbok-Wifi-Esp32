@@ -146,7 +146,12 @@ def handle_get(query_string=None):
         html = html.replace("{{ axis_map_list }}", axis_map_list)
         html = html.replace("{{ area_ip }}", area_ip)
         html = html.replace("{{ fpv_ip }}", fpv_ip)
-        html = html.replace("{{ drive_mode }}", drive_mode.capitalize())
+        # MicroPython str may not have capitalize()
+        if drive_mode:
+            drive_mode_cap = drive_mode[0].upper() + drive_mode[1:]
+        else:
+            drive_mode_cap = drive_mode
+        html = html.replace("{{ drive_mode }}", drive_mode_cap)
     except Exception as e:
         html = f"<html><body><h2>Error loading play page: {e}</h2></body></html>"
     return ("200 OK", "text/html", html)

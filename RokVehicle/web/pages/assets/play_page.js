@@ -1,516 +1,909 @@
-// --- Local Controller (Gamepad) Section ---
-let availableGamepads = [];
-let selectedGamepadIndex = null;
+// --- Application State ---
+const state = {
+    // Gamepad and controls
+    gamepads: [],
+    selectedGamepadIndex: 0,
+    gamepadPollInterval: null,
+    controlState: {}, // Tracks active controls to prevent redundant commands
+    driveMode: 'tank', // 'tank' or 'dpad'
+    mapping: {},
 
-function rescanGamepads() {
-    availableGamepads = [];
-    const gps = navigator.getGamepads ? navigator.getGamepads() : [];
-    for (let i = 0; i < gps.length; ++i) {
-        if (gps[i]) availableGamepads.push(gps[i]);
+    // Vehicle Configuration
+    vehicleConfig: {
+        axisMotors: [],
+        motorFunctions: [],
+        logicFunctions: [],
+        vehicleType: '',
+    },
+
+    // UI and View
+    view: {
+        mode: 'area', // 'area', 'fpv', 'pip'
+        pipFlipped: false,
+        areaIP: '',
+        fpvIP: '',
+    },
+
+    // WebSocket
+    ws: null,
+    isConnected: false,
+
+    // Mapping UI
+    mappingActive: null, // { field, type, ... }
+};
+
+// --- Constants ---
+const DEADZONE = 0.1;
+const KEEPALIVE_INTERVAL = 100; // ms, for motor watchdog
+
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
+    initUI();
+    initGamepad();
+    initWebSocket();
+    loadConfiguration();
+});
+
+/**
+ * Attaches all initial event listeners to UI elements.
+ */
+function initUI() {
+    // Gamepad selection
+    document.getElementById('rescan_gamepads_btn')?.addEventListener('click', scanGamepads);
+    document.getElementById('gamepad_select')?.addEventListener('change', (e) => {
+        state.selectedGamepadIndex = parseInt(e.target.value, 10);
+        updateGamepadStatusUI();
+    });
+
+    // View controls
+    document.getElementById('view_area_btn')?.addEventListener('click', () => setViewMode('area'));
+    document.getElementById('view_fpv_btn')?.addEventListener('click', () => setViewMode('fpv'));
+    document.getElementById('view_pip_btn')?.addEventListener('click', () => setViewMode('pip'));
+    document.getElementById('flip_pip_btn')?.addEventListener('click', flipPIP);
+    document.getElementById('save_ips_btn')?.addEventListener('click', saveCameraIPs);
+
+    // Drive mode - ensure we only attach once
+    const toggleBtn = document.getElementById('toggle_mode_btn');
+    if (toggleBtn && !toggleBtn.dataset.initialized) {
+        toggleBtn.addEventListener('click', toggleDriveMode);
+        toggleBtn.dataset.initialized = 'true';
     }
-    populateGamepadDropdown();
+
+    // Control Mapping - use addEventListener for consistency
+    const mappingHeader = document.getElementById('control_mapping_header');
+    if (mappingHeader && !mappingHeader.dataset.initialized) {
+        mappingHeader.style.cursor = 'pointer';
+        mappingHeader.addEventListener('click', () => {
+            if (state.gamepads.length > 0) {
+                renderMappingUI();
+            } else {
+                alert('No controller detected. Please connect a controller to map controls.');
+            }
+        });
+        mappingHeader.dataset.initialized = 'true';
+    }
 }
 
-function populateGamepadDropdown() {
-    const select = document.getElementById('gamepad_select');
-    const status = document.getElementById('gamepad_status');
-    select.innerHTML = '';
-    if (availableGamepads.length === 0) {
-        status.textContent = 'No controllers found.';
-        select.disabled = true;
+/**
+ * Sets up gamepad connection listeners and starts the polling loop.
+ */
+function initGamepad() {
+    window.addEventListener('gamepadconnected', (e) => {
+        scanGamepads();
+    });
+    window.addEventListener('gamepaddisconnected', (e) => {
+        scanGamepads();
+    });
+    scanGamepads();
+    // Start the main control loop
+    if (state.gamepadPollInterval) clearInterval(state.gamepadPollInterval);
+    state.gamepadPollInterval = setInterval(gamepadLoop, 50);
+}
+
+/**
+ * Initializes the WebSocket connection.
+ */
+function initWebSocket() {
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) return;
+
+    const wsUrl = `ws://${location.host}/ws`;
+    try {
+        state.ws = new WebSocket(wsUrl);
+        state.ws.onopen = () => {
+            state.isConnected = true;
+            updateConnectionStatusUI('Connected');
+        };
+        state.ws.onclose = () => {
+            state.isConnected = false;
+            updateConnectionStatusUI('Disconnected');
+            // Optional: try to reconnect
+            setTimeout(initWebSocket, 3000);
+        };
+        state.ws.onerror = (err) => {
+            console.error('WebSocket Error:', err);
+            state.isConnected = false;
+            updateConnectionStatusUI('Error');
+        };
+        state.ws.onmessage = (event) => {
+            // Handle incoming messages if needed
+        };
+    } catch (error) {
+        console.error('WebSocket initialization failed:', error);
+        updateConnectionStatusUI('Error');
+    }
+}
+
+// --- Configuration Management ---
+
+/**
+ * Loads all configuration from the server.
+ */
+async function loadConfiguration() {
+    try {
+        const response = await fetch('/play?config=1');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const config = await response.json();
+
+        // Load view config
+        state.view.areaIP = config.area_ip || localStorage.getItem('area_ip') || '';
+        state.view.fpvIP = config.fpv_ip || localStorage.getItem('fpv_ip') || '';
+        state.view.mode = config.view_mode || 'area';
+        state.view.pipFlipped = !!config.pip_flip;
+
+        // Load control config
+        state.driveMode = config.drive_mode || 'tank';
+        state.mapping = config.mapping || {};
+
+        // Load vehicle config
+        state.vehicleConfig = {
+            axisMotors: config.axis_motors || [],
+            motorFunctions: config.motor_functions || [],
+            logicFunctions: config.logic_functions || [],
+            vehicleType: config.vehicle_type || '',
+        };
+
+        // Update UI with loaded config
+        updateAllUI();
+
+    } catch (error) {
+        console.error('Failed to load configuration:', error);
+    }
+}
+
+/**
+ * Saves a specific part of the configuration to the server.
+ * @param {string} action - The type of config to save ('save_view', 'save_mapping').
+ * @param {object} payload - The data to save.
+ */
+async function saveConfiguration(action, payload) {
+    try {
+        const response = await fetch('/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, ...payload }),
+        });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    } catch (error) {
+        console.error(`Failed to save configuration for ${action}:`, error);
+    }
+}
+
+// --- Gamepad Handling & Control Loop ---
+
+/**
+ * The main loop for polling the gamepad and sending control commands.
+ */
+function gamepadLoop() {
+    if (state.gamepads.length === 0) {
+        // If no gamepad, ensure all motors are stopped.
+        stopAllMotors();
         return;
     }
-    availableGamepads.forEach((gp, idx) => {
-        const opt = document.createElement('option');
-        opt.value = idx;
-        opt.textContent = gp.id || `Gamepad ${idx + 1}`;
-        select.appendChild(opt);
-    });
-    select.disabled = false;
-    status.textContent = 'Select a controller.';
-    // Restore previous selection if possible
-    if (selectedGamepadIndex !== null && availableGamepads[selectedGamepadIndex]) {
-        select.value = selectedGamepadIndex;
+
+    const gp = navigator.getGamepads()[state.selectedGamepadIndex];
+    if (!gp) return;
+
+    // If mapping UI is open, check for input to map.
+    if (state.mappingActive) {
+        detectMappingInput(gp);
+        return; // Don't process regular controls while mapping
+    }
+
+    if (!state.isConnected) {
+        stopAllMotors();
+        return;
+    }
+
+    // Update UI with live gamepad data (optional, can be throttled)
+    updateBrowserGamepadUI(gp);
+
+    // Process controls based on drive mode
+    if (state.driveMode === 'dpad') {
+        processDpadMode(gp);
     } else {
-        selectedGamepadIndex = 0;
-        select.value = 0;
+        processTankMode(gp);
+    }
+
+    processMotorFunctions(gp);
+    processLogicFunctions(gp);
+}
+
+/**
+ * Scans for connected gamepads and updates the UI.
+ */
+function scanGamepads() {
+    state.gamepads = Array.from(navigator.getGamepads()).filter(Boolean);
+    updateGamepadDropdownUI();
+    if (state.gamepads.length > 0 && state.selectedGamepadIndex >= state.gamepads.length) {
+        state.selectedGamepadIndex = 0;
+    }
+    updateGamepadStatusUI();
+}
+
+/**
+ * Processes controls for 'tank' drive mode.
+ * @param {Gamepad} gp - The gamepad object.
+ */
+function processTankMode(gp) {
+    state.vehicleConfig.axisMotors.forEach(motorName => {
+        const axisMap = state.mapping[`axis_${motorName}_axis`];
+        let power = 0;
+
+        // 1. Check axis input first, ensuring the axis exists on the gamepad
+        if (axisMap && axisMap.type === 'axis' && gp.axes.length > axisMap.index) {
+            const rawValue = gp.axes[axisMap.index] || 0;
+            if (Math.abs(rawValue) > DEADZONE) {
+                power = rawValue * (axisMap.direction || 1);
+            }
+        }
+
+        // 2. Check button overrides ONLY if axis is idle
+        if (power === 0) {
+            const fwdBtnMap = state.mapping[`axis_${motorName}_fwd`];
+            const revBtnMap = state.mapping[`axis_${motorName}_rev`];
+
+            // Check forward button, ensuring it exists on the gamepad
+            if (fwdBtnMap && fwdBtnMap.type === 'button' && gp.buttons.length > fwdBtnMap.index && gp.buttons[fwdBtnMap.index]?.pressed) {
+                power = 1.0;
+            }
+            // Check reverse button, ensuring it exists on the gamepad
+            else if (revBtnMap && revBtnMap.type === 'button' && gp.buttons.length > revBtnMap.index && gp.buttons[revBtnMap.index]?.pressed) {
+                power = -1.0;
+            }
+        }
+
+        const dir = power >= 0 ? 'fwd' : 'rev';
+        // Ensure power is a number and clamped between 0 and 100.
+        const absPower = Math.max(0, Math.min(100, Math.abs(power || 0) * 100));
+
+        processControl(`axis_${motorName}`, absPower > 0,
+            () => sendMotorCommand(motorName, dir, absPower),
+            () => sendMotorCommand(motorName, 'fwd', 0)
+        );
+    });
+}
+
+/**
+ * Processes controls for 'dpad' drive mode.
+ * @param {Gamepad} gp - The gamepad object.
+ */
+function processDpadMode(gp) {
+    const { axisMotors } = state.vehicleConfig;
+    const leftMotor = axisMotors.find(m => m.toLowerCase() === 'left');
+    const rightMotor = axisMotors.find(m => m.toLowerCase() === 'right');
+
+    if (leftMotor && rightMotor) {
+        const fwd = isControlActive(gp, state.mapping['drive_dpad_fwd']);
+        const rev = isControlActive(gp, state.mapping['drive_dpad_rev']);
+        const left = isControlActive(gp, state.mapping['drive_dpad_left']);
+        const right = isControlActive(gp, state.mapping['drive_dpad_right']);
+
+        let leftPower = 0;
+        let rightPower = 0;
+
+        if (fwd) { leftPower = 1; rightPower = 1; }
+        else if (rev) { leftPower = -1; rightPower = -1; }
+        else if (left) { leftPower = -1; rightPower = 1; }
+        else if (right) { leftPower = 1; rightPower = -1; }
+
+        processControl(`dpad_left`, leftPower !== 0,
+            () => sendMotorCommand(leftMotor, leftPower > 0 ? 'fwd' : 'rev', 100),
+            () => sendMotorCommand(leftMotor, 'fwd', 0)
+        );
+        processControl(`dpad_right`, rightPower !== 0,
+            () => sendMotorCommand(rightMotor, rightPower > 0 ? 'fwd' : 'rev', 100),
+            () => sendMotorCommand(rightMotor, 'fwd', 0)
+        );
+    }
+
+    // Handle other non-drive axis motors - they can accept variable power from axes
+    const otherMotors = axisMotors.filter(m => m.toLowerCase() !== 'left' && m.toLowerCase() !== 'right');
+    otherMotors.forEach(motorName => {
+        const fwdMap = state.mapping[`axis_${motorName}_fwd`];
+        const revMap = state.mapping[`axis_${motorName}_rev`];
+
+        let power = 0;
+
+        // Check for axis input first (variable power 0-100)
+        if (fwdMap && fwdMap.type === 'axis' && gp.axes.length > fwdMap.index) {
+            const rawValue = gp.axes[fwdMap.index] || 0;
+            if (Math.abs(rawValue) > DEADZONE) {
+                power = rawValue * (fwdMap.direction || 1);
+            }
+        } else if (revMap && revMap.type === 'axis' && gp.axes.length > revMap.index) {
+            const rawValue = gp.axes[revMap.index] || 0;
+            if (Math.abs(rawValue) > DEADZONE) {
+                power = rawValue * (revMap.direction || 1) * -1; // Reverse direction
+            }
+        }
+
+        // Check for button input (on/off only)
+        if (power === 0) {
+            if (fwdMap && fwdMap.type === 'button' && gp.buttons.length > fwdMap.index && gp.buttons[fwdMap.index]?.pressed) {
+                power = 1.0;
+            } else if (revMap && revMap.type === 'button' && gp.buttons.length > revMap.index && gp.buttons[revMap.index]?.pressed) {
+                power = -1.0;
+            }
+        }
+
+        const dir = power >= 0 ? 'fwd' : 'rev';
+        const absPower = Math.max(0, Math.min(100, Math.abs(power || 0) * 100));
+
+        processControl(`axis_${motorName}`, absPower > 0,
+            () => sendMotorCommand(motorName, dir, absPower),
+            () => sendMotorCommand(motorName, 'fwd', 0)
+        );
+    });
+}
+
+/**
+ * Processes controls for all motor functions.
+ * @param {Gamepad} gp - The gamepad object.
+ */
+function processMotorFunctions(gp) {
+    state.vehicleConfig.motorFunctions.forEach(fnName => {
+        const fwd = isControlActive(gp, state.mapping[`motorfn_${fnName}_fwd`]);
+        const rev = isControlActive(gp, state.mapping[`motorfn_${fnName}_rev`]);
+
+        let power = 0;
+        if (fwd) power = 1;
+        else if (rev) power = -1;
+
+        const dir = power >= 0 ? 'fwd' : 'rev';
+
+        processControl(`motorfn_${fnName}`, power !== 0,
+            () => sendMotorCommand(fnName, dir, 100),
+            () => sendMotorCommand(fnName, 'fwd', 0)
+        );
+    });
+}
+
+/**
+ * Processes controls for all logic functions.
+ * @param {Gamepad} gp - The gamepad object.
+ */
+function processLogicFunctions(gp) {
+    state.vehicleConfig.logicFunctions.forEach(fnName => {
+        const isActive = isControlActive(gp, state.mapping[`logicfn_${fnName}_btn`]);
+        processControl(`logicfn_${fnName}`, isActive,
+            () => sendLogicCommand(fnName, true),
+            () => sendLogicCommand(fnName, false)
+        );
+    });
+}
+
+
+/**
+ * Generic helper to check if a mapped control is active.
+ * @param {Gamepad} gp - The gamepad object.
+ * @param {object} mapObj - The mapping object for the control.
+ * @returns {boolean} - True if the control is active.
+ */
+function isControlActive(gp, mapObj) {
+    if (!mapObj) return false;
+    if (mapObj.type === 'button') {
+        // Ensure button exists on gamepad before checking
+        if (gp.buttons.length > mapObj.index) {
+            return gp.buttons[mapObj.index]?.pressed || false;
+        }
+        return false;
+    }
+    if (mapObj.type === 'axis') {
+        // Ensure axis exists on gamepad before checking
+        if (gp.axes.length > mapObj.index) {
+            const val = gp.axes[mapObj.index] || 0;
+            return mapObj.direction === 1 ? val > 0.7 : val < -0.7;
+        }
+        return false;
+    }
+    return false;
+}
+
+/**
+ * Manages sending commands for a single control, handling state changes and keep-alives.
+ * @param {string} key - A unique identifier for the control.
+ * @param {boolean} isActive - Whether the control is currently active.
+ * @param {function} sendActive - Function to call when the control is active.
+ * @param {function} sendStop - Function to call when the control becomes inactive.
+ */
+function processControl(key, isActive, sendActive, sendStop) {
+    const wasActive = state.controlState[key]?.active || false;
+    const now = Date.now();
+
+    if (isActive) {
+        const lastSent = state.controlState[key]?.lastSent || 0;
+        if (!wasActive || (now - lastSent >= KEEPALIVE_INTERVAL)) {
+            sendActive();
+            state.controlState[key] = { active: true, lastSent: now };
+        }
+    } else {
+        if (wasActive) {
+            sendStop();
+            state.controlState[key] = { active: false, lastSent: now };
+        }
     }
 }
 
-function handleGamepadSelection() {
-    const select = document.getElementById('gamepad_select');
-    selectedGamepadIndex = parseInt(select.value);
-    const status = document.getElementById('gamepad_status');
-    if (availableGamepads[selectedGamepadIndex]) {
-        status.textContent = `Selected: ${availableGamepads[selectedGamepadIndex].id}`;
+/**
+ * Stops all motors by clearing the control state.
+ */
+function stopAllMotors() {
+    Object.keys(state.controlState).forEach(key => {
+        if (state.controlState[key].active) {
+            if (key.startsWith('axis_') || key.startsWith('dpad_') || key.startsWith('motorfn_')) {
+                const motorName = key.split('_')[1];
+                // Use proper stop command instead of power 0
+                if (state.isConnected) {
+                    const command = { action: 'stop', name: motorName };
+                    state.ws.send(JSON.stringify(command));
+                }
+            }
+            state.controlState[key].active = false;
+        }
+    });
+}
+
+
+// --- WebSocket Command Senders ---
+
+/**
+ * Sends a command to a motor.
+ * @param {string} name - The name of the motor.
+ * @param {string} dir - The direction ('fwd' or 'rev').
+ * @param {number} power - The power level (0 to 100).
+ */
+function sendMotorCommand(name, dir, power) {
+    if (!state.isConnected) return;
+
+    // Use stop action when power is 0, otherwise use set action
+    if (power === 0) {
+        const command = { action: 'stop', name };
+        state.ws.send(JSON.stringify(command));
+    } else {
+        // Power is already in 0-100 range
+        const clampedPower = Math.max(0, Math.min(100, power));
+        const command = { action: 'set', name, dir, power: clampedPower };
+        state.ws.send(JSON.stringify(command));
     }
 }
 
-window.addEventListener('gamepadconnected', rescanGamepads);
-window.addEventListener('gamepaddisconnected', rescanGamepads);
+/**
+ * Sends a command for a logic function.
+ * @param {string} id - The ID of the logic function.
+ * @param {boolean} pressed - The state of the function.
+ */
+function sendLogicCommand(id, pressed) {
+    if (!state.isConnected) return;
+    const command = { action: 'logic_function', id, pressed };
+    state.ws.send(JSON.stringify(command));
+}
 
-document.addEventListener('DOMContentLoaded', function () {
-    const rescanBtn = document.getElementById('rescan_gamepads_btn');
-    const select = document.getElementById('gamepad_select');
-    if (rescanBtn) rescanBtn.addEventListener('click', rescanGamepads);
-    if (select) select.addEventListener('change', handleGamepadSelection);
-    rescanGamepads();
-});
-// --- Play page UI logic for view selection, camera IPs, PIP flip, controller mapping, and Bluetooth scan (placeholder) ---
 
-let viewMode = 'area';
-let pipFlip = false;
-let areaIP = '';
-let fpvIP = '';
+// --- UI Update Functions ---
 
-let driveMode = 'tank';
-let mapping = {};
-let auxMotors = [];
-let allMotors = [];
-let vehicleType = '';
-
-function setView(mode) {
-    viewMode = mode;
+/**
+ * Updates all relevant UI parts based on the current state.
+ */
+function updateAllUI() {
     updateViewUI();
-    saveViewConfig();
+    updateDriveModeUI();
+    updateConnectionStatusUI(state.isConnected ? 'Connected' : 'Disconnected');
+    // Update IP input fields
+    const areaIpEl = document.getElementById('area_ip');
+    const fpvIpEl = document.getElementById('fpv_ip');
+    if (areaIpEl) areaIpEl.value = state.view.areaIP;
+    if (fpvIpEl) fpvIpEl.value = state.view.fpvIP;
+}
+
+function updateConnectionStatusUI(status) {
+    const connEl = document.getElementById('conn_status');
+    const vehicleEl = document.getElementById('vehicle_status_indicator');
+    if (connEl) connEl.textContent = status;
+
+    if (vehicleEl) {
+        switch (status) {
+            case 'Connected':
+                vehicleEl.textContent = 'Vehicle Connected';
+                vehicleEl.className = 'status-connected';
+                break;
+            case 'Disconnected':
+                vehicleEl.textContent = 'Vehicle Disconnected';
+                vehicleEl.className = 'status-disconnected';
+                break;
+            case 'Error':
+                vehicleEl.textContent = 'Vehicle Error';
+                vehicleEl.className = 'status-error';
+                break;
+        }
+    }
+}
+
+function updateGamepadDropdownUI() {
+    const select = document.getElementById('gamepad_select');
+    if (!select) return;
+    select.innerHTML = '';
+    if (state.gamepads.length === 0) {
+        const opt = document.createElement('option');
+        opt.textContent = 'No controllers found';
+        select.appendChild(opt);
+        select.disabled = true;
+    } else {
+        state.gamepads.forEach((gp, index) => {
+            const opt = document.createElement('option');
+            opt.value = index;
+            opt.textContent = gp.id;
+            select.appendChild(opt);
+        });
+        select.disabled = false;
+        select.value = state.selectedGamepadIndex;
+    }
+}
+
+function updateGamepadStatusUI() {
+    const status = document.getElementById('gamepad_status');
+    if (!status) return;
+    if (state.gamepads.length > 0) {
+        const gp = state.gamepads[state.selectedGamepadIndex];
+        status.textContent = `Selected: ${gp.id}`;
+    } else {
+        status.textContent = 'Press a button on a controller to connect.';
+    }
+}
+
+function updateBrowserGamepadUI(gp) {
+    const section = document.getElementById('browser_controller_section');
+    if (!section) return;
+
+    if (!gp) {
+        section.innerHTML = '<div style="color:#888">No gamepad detected.</div>';
+        return;
+    }
+
+    // Minimal display - just show connection status without verbose details
+    section.innerHTML = '<div style="color:#4caf50;font-size:0.9em;">Controller Ready</div>';
+}
+
+function updateDriveModeUI() {
+    const indicator = document.getElementById('drive_mode_indicator');
+    if (indicator) {
+        indicator.textContent = state.driveMode.charAt(0).toUpperCase() + state.driveMode.slice(1);
+    }
+}
+
+// --- View and Camera Controls ---
+
+function setViewMode(mode) {
+    state.view.mode = mode;
+    updateViewUI();
+    saveConfiguration('save_view', {
+        area_ip: state.view.areaIP,
+        fpv_ip: state.view.fpvIP,
+        view_mode: state.view.mode,
+        pip_flip: state.view.pipFlipped,
+    });
 }
 
 function flipPIP() {
-    pipFlip = !pipFlip;
+    state.view.pipFlipped = !state.view.pipFlipped;
     updateViewUI();
-    saveViewConfig();
-}
-
-function updateViewUI() {
-    // Highlight selected view button
-    ['area', 'fpv', 'pip'].forEach(m => {
-        let btn = document.getElementById('view_' + m + '_btn');
-        if (btn) btn.style.background = (viewMode === m) ? '#d1e7dd' : '';
+    saveConfiguration('save_view', {
+        area_ip: state.view.areaIP,
+        fpv_ip: state.view.fpvIP,
+        view_mode: state.view.mode,
+        pip_flip: state.view.pipFlipped,
     });
-    // Update video area (placeholder)
-    const container = document.getElementById('video_container');
-    if (!container) return;
-    container.innerHTML = '';
-    if (viewMode === 'area') {
-        container.innerHTML = `<video class="video-full" src="http://${areaIP}/stream" controls autoplay></video>`;
-    } else if (viewMode === 'fpv') {
-        container.innerHTML = `<video class="video-full" src="http://${fpvIP}/stream" controls autoplay></video>`;
-    } else if (viewMode === 'pip') {
-        // PIP: large and small video, flip if needed
-        let main = pipFlip ? fpvIP : areaIP;
-        let pip = pipFlip ? areaIP : fpvIP;
-        container.innerHTML = `
-            <div class="video-main${pipFlip ? ' flipped' : ''}">
-                <video src="http://${main}/stream" width="100%" height="100%" controls autoplay></video>
-            </div>
-            <div class="video-pip${pipFlip ? ' flipped' : ''}">
-                <video src="http://${pip}/stream" width="100%" height="100%" controls autoplay></video>
-            </div>`;
-    }
 }
 
 function saveCameraIPs() {
-    areaIP = document.getElementById('area_ip').value;
-    fpvIP = document.getElementById('fpv_ip').value;
-    localStorage.setItem('area_ip', areaIP);
-    localStorage.setItem('fpv_ip', fpvIP);
-    saveViewConfig();
-    alert('Camera IPs saved!');
+    state.view.areaIP = document.getElementById('area_ip').value;
+    state.view.fpvIP = document.getElementById('fpv_ip').value;
+    localStorage.setItem('area_ip', state.view.areaIP);
+    localStorage.setItem('fpv_ip', state.view.fpvIP);
     updateViewUI();
-}
-
-function saveViewConfig() {
-    // Save to backend
-    fetch('/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            action: 'save_view',
-            area_ip: areaIP,
-            fpv_ip: fpvIP,
-            view_mode: viewMode,
-            pip_flip: pipFlip
-        })
+    saveConfiguration('save_view', {
+        area_ip: state.view.areaIP,
+        fpv_ip: state.view.fpvIP,
+        view_mode: state.view.mode,
+        pip_flip: state.view.pipFlipped,
     });
+    alert('Camera IPs saved!');
 }
 
-function loadViewConfig() {
-    // Load from backend (or localStorage as fallback)
-    fetch('/play?config=1').then(r => r.json()).then(cfg => {
-        areaIP = cfg.area_ip || localStorage.getItem('area_ip') || '';
-        fpvIP = cfg.fpv_ip || localStorage.getItem('fpv_ip') || '';
-        viewMode = cfg.view_mode || 'area';
-        pipFlip = !!cfg.pip_flip;
-        document.getElementById('area_ip').value = areaIP;
-        document.getElementById('fpv_ip').value = fpvIP;
-        updateViewUI();
+function updateViewUI() {
+    ['area', 'fpv', 'pip'].forEach(m => {
+        const btn = document.getElementById(`view_${m}_btn`);
+        if (btn) btn.classList.toggle('active', state.view.mode === m);
     });
-}
 
-
-// --- Live mapping state ---
-let mappingActive = null; // { field: 'tank_left_axis', type: 'axis'|'button'|'dpad', auxIdx: number|null }
-
-function renderMappingUI() {
-    const container = document.getElementById('mapping_section');
+    const container = document.getElementById('video_container');
     if (!container) return;
-    let html = '';
-    // Axis Motors
-    html += '<h3>Axis Motors</h3>';
-    if (typeof axisMotors !== 'undefined' && axisMotors.length) {
-        html += '<table><tr><th>Name</th>';
-        if (driveMode === 'tank') {
-            html += '<th>Axis</th><th>Fwd Btn</th><th>Rev Btn</th>';
-        } else {
-            html += '<th>D-Pad Dir</th><th>Fwd Btn</th><th>Rev Btn</th>';
-        }
-        html += '</tr>';
-        axisMotors.forEach((motor, idx) => {
-            html += `<tr><td>${motor.name}</td>`;
-            // Axis or D-Pad assignment
-            if (driveMode === 'tank') {
-                html += `<td class="map-cell" id="axis_${motor.id}_axis_cell" onclick="startMapping('axis_${motor.id}_axis','axis')">${mapping[`axis_${motor.id}_axis`] !== undefined ? 'Axis ' + mapping[`axis_${motor.id}_axis`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
-            } else {
-                html += `<td class="map-cell" id="axis_${motor.id}_dpad_cell" onclick="startMapping('axis_${motor.id}_dpad','dpad')">${mapping[`axis_${motor.id}_dpad`] !== undefined ? mapping[`axis_${motor.id}_dpad`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
-            }
-            // Forward/Reverse button assignment (always allowed)
-            html += `<td class="map-cell" id="axis_${motor.id}_fwd_cell" onclick="startMapping('axis_${motor.id}_fwd','button')">${mapping[`axis_${motor.id}_fwd`] !== undefined ? mapping[`axis_${motor.id}_fwd`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
-            html += `<td class="map-cell" id="axis_${motor.id}_rev_cell" onclick="startMapping('axis_${motor.id}_rev','button')">${mapping[`axis_${motor.id}_rev`] !== undefined ? mapping[`axis_${motor.id}_rev`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
-            html += '</tr>';
-        });
-        html += '</table>';
-    } else {
-        html += '<div style="color:#888">No axis motors configured.</div>';
+    container.innerHTML = ''; // Clear previous content
+
+    const { mode, areaIP, fpvIP, pipFlipped } = state.view;
+
+    const createVideoEl = (ip) => {
+        if (!ip || ip.trim() === '') return '';
+        return `<video class="video-full" src="http://${ip}/stream" controls autoplay muted loop playsinline></video>`;
+    };
+
+    if (mode === 'area') {
+        container.innerHTML = createVideoEl(areaIP);
+    } else if (mode === 'fpv') {
+        container.innerHTML = createVideoEl(fpvIP);
+    } else if (mode === 'pip') {
+        const mainIP = pipFlipped ? fpvIP : areaIP;
+        const pipIP = pipFlipped ? areaIP : fpvIP;
+        container.innerHTML = `
+            <div class="video-main">${createVideoEl(mainIP)}</div>
+            <div class="video-pip">${createVideoEl(pipIP)}</div>
+        `;
     }
+}
+
+// --- Drive Mode Toggle ---
+
+function toggleDriveMode() {
+    state.driveMode = (state.driveMode === 'tank') ? 'dpad' : 'tank';
+    updateDriveModeUI();
+    saveConfiguration('save_mapping', {
+        mapping: state.mapping,
+        drive_mode: state.driveMode,
+    });
+    alert(`Drive mode set to ${state.driveMode.charAt(0).toUpperCase() + state.driveMode.slice(1)}`);
+    // If mapping UI is open, re-render it
+    const modal = document.getElementById('mapping_modal');
+    if (modal && modal.style.display === 'block') {
+        renderMappingUI();
+    }
+}
+
+// --- Control Mapping UI ---
+
+/**
+ * Renders the entire control mapping modal, building the UI from scratch.
+ */
+function renderMappingUI() {
+    let modal = document.getElementById('mapping_modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'mapping_modal';
+        // Using classes from play_page.css for styling
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <span id="close_mapping_modal" class="modal-close">&times;</span>
+                <h2 style="margin-top:0">Control Mapping</h2>
+                <div id="vehicle_type_reminder" style="margin-bottom:10px; color:#888; font-size:1em;"></div>
+                <div id="mapping_modal_body"></div>
+                <div class="modal-footer">
+                    <button id="save_mapping_btn" class="button">Save Mapping</button>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+        document.getElementById('close_mapping_modal').addEventListener('click', hideMappingModal);
+        document.getElementById('save_mapping_btn').addEventListener('click', saveCurrentMapping);
+        modal.addEventListener('click', (e) => { if (e.target === modal) hideMappingModal(); });
+    }
+
+    document.getElementById('vehicle_type_reminder').textContent = `Vehicle Type: ${state.vehicleConfig.vehicleType || '(unknown)'}`;
+
+    const body = document.getElementById('mapping_modal_body');
+    body.innerHTML = buildMappingTableHTML();
+
+    // Attach event listeners to the newly created "Set" buttons
+    body.querySelectorAll('.map-btn').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const field = e.target.dataset.field;
+            startMapping(field);
+        });
+    });
+
+    modal.style.display = 'block';
+}
+
+/**
+ * Builds the HTML string for the mapping table based on current drive mode and vehicle config.
+ * @returns {string} The HTML for the table.
+ */
+function buildMappingTableHTML() {
+    const { axisMotors, motorFunctions, logicFunctions } = state.vehicleConfig;
+    let html = '<table class="mapping-table">';
+
+    // Header
+    html += '<thead><tr><th>Function</th><th>Control</th><th>Mapped To</th></tr></thead>';
+    html += '<tbody>';
+
+    // Drive controls based on mode
+    if (state.driveMode === 'tank') {
+        html += '<tr><td colspan="3" class="mapping-header">Tank Drive</td></tr>';
+        axisMotors.forEach(motor => {
+            html += buildMappingRow(`axis_${motor}_axis`, `${motor} Axis`, 'Axis');
+            html += buildMappingRow(`axis_${motor}_fwd`, `${motor} Fwd`, 'Button');
+            html += buildMappingRow(`axis_${motor}_rev`, `${motor} Rev`, 'Button');
+        });
+    } else { // dpad mode
+        html += '<tr><td colspan="3" class="mapping-header">DPad Drive</td></tr>';
+        html += buildMappingRow('drive_dpad_fwd', 'Forward', 'Button/Axis');
+        html += buildMappingRow('drive_dpad_rev', 'Reverse', 'Button/Axis');
+        html += buildMappingRow('drive_dpad_left', 'Left', 'Button/Axis');
+        html += buildMappingRow('drive_dpad_right', 'Right', 'Button/Axis');
+
+        // Show other axis motors (non-left/right) for individual control in dpad mode
+        const otherMotors = axisMotors.filter(m => m.toLowerCase() !== 'left' && m.toLowerCase() !== 'right');
+        if (otherMotors.length > 0) {
+            html += '<tr><td colspan="3" class="mapping-header">Other Axis Motors</td></tr>';
+            otherMotors.forEach(motor => {
+                html += buildMappingRow(`axis_${motor}_fwd`, `${motor} Fwd`, 'Button/Axis');
+                html += buildMappingRow(`axis_${motor}_rev`, `${motor} Rev`, 'Button/Axis');
+            });
+        }
+    }
+
     // Motor Functions
-    html += '<h3>Motor Functions</h3>';
-    if (typeof motorFunctions !== 'undefined' && motorFunctions.length) {
-        html += '<table><tr><th>Name</th><th>Fwd Btn</th><th>Rev Btn</th></tr>';
-        motorFunctions.forEach((fn, idx) => {
-            html += `<tr><td>${fn.name}</td>`;
-            html += `<td class="map-cell" id="motorfn_${fn.id}_fwd_cell" onclick="startMapping('motorfn_${fn.id}_fwd','button')">${mapping[`motorfn_${fn.id}_fwd`] !== undefined ? mapping[`motorfn_${fn.id}_fwd`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
-            html += `<td class="map-cell" id="motorfn_${fn.id}_rev_cell" onclick="startMapping('motorfn_${fn.id}_rev','button')">${mapping[`motorfn_${fn.id}_rev`] !== undefined ? mapping[`motorfn_${fn.id}_rev`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
-            html += '</tr>';
+    if (motorFunctions.length > 0) {
+        html += '<tr><td colspan="3" class="mapping-header">Motor Functions</td></tr>';
+        motorFunctions.forEach(fn => {
+            html += buildMappingRow(`motorfn_${fn}_fwd`, `${fn} Fwd`, 'Button/Axis');
+            html += buildMappingRow(`motorfn_${fn}_rev`, `${fn} Rev`, 'Button/Axis');
         });
-        html += '</table>';
-    } else {
-        html += '<div style="color:#888">No motor functions configured.</div>';
     }
-    // Logic/Regular Functions
-    html += '<h3>Functions</h3>';
-    if (typeof logicFunctions !== 'undefined' && logicFunctions.length) {
-        html += '<table><tr><th>Name</th><th>Button</th></tr>';
-        logicFunctions.forEach((fn, idx) => {
-            html += `<tr><td>${fn.name}</td>`;
-            html += `<td class="map-cell" id="logicfn_${fn.id}_btn_cell" onclick="startMapping('logicfn_${fn.id}_btn','button')">${mapping[`logicfn_${fn.id}_btn`] !== undefined ? mapping[`logicfn_${fn.id}_btn`] : '<span style=\'color:#888\'>[none]</span>'}</td>`;
-            html += '</tr>';
+
+    // Logic Functions
+    if (logicFunctions.length > 0) {
+        html += '<tr><td colspan="3" class="mapping-header">Logic Functions</td></tr>';
+        logicFunctions.forEach(fn => {
+            html += buildMappingRow(`logicfn_${fn}_btn`, fn, 'Button');
         });
-        html += '</table>';
-    } else {
-        html += '<div style="color:#888">No functions configured.</div>';
     }
-    html += `<button id="save_mapping_btn">Save Mapping</button>`;
-    html += `<div id="mapping_status" style="margin-top:8px;color:#1976d2;"></div>`;
-    container.innerHTML = html;
+
+    html += '</tbody></table>';
+    return html;
 }
 
-function startMapping(field, type, auxIdx = null, dpadDir = null) {
-    mappingActive = { field, type, auxIdx, dpadDir };
-    document.getElementById('mapping_status').textContent = `Waiting for ${type === 'axis' ? 'axis move' : type === 'button' ? 'button press' : 'dpad press'}...`;
-    highlightMappingField(field, true);
-}
-
-function highlightMappingField(field, on) {
-    let el = null;
-    if (field.startsWith('tank_left_axis')) el = document.getElementById('tank_left_axis');
-    else if (field.startsWith('tank_right_axis')) el = document.getElementById('tank_right_axis');
-    else if (field.startsWith('aux')) {
-        let idx = field.match(/aux(\d+)_(fwd|rev)/);
-        if (idx) el = document.getElementById(`aux${idx[1]}_${idx[2]}`);
-    } else if (field.startsWith('dpad_')) {
-        el = document.getElementById(field);
+/**
+ * Builds a single row for the mapping table.
+ * @param {string} field - The mapping field ID (e.g., 'axis_left_fwd').
+ * @param {string} label - The display name for the function (e.g., 'Left Fwd').
+ * @param {string} type - The expected control type (e.g., 'Button').
+ * @returns {string} The HTML for the table row.
+ */
+function buildMappingRow(field, label, type) {
+    const mapping = state.mapping[field];
+    let mappedTo = 'Not Set';
+    if (mapping) {
+        if (mapping.type === 'button') {
+            mappedTo = `Button ${mapping.index}`;
+        } else if (mapping.type === 'axis') {
+            mappedTo = `Axis ${mapping.index} (${mapping.direction > 0 ? '+' : '-'})`;
+        }
     }
-    if (el) el.style.background = on ? '#ffe082' : '';
+    return `
+        <tr>
+            <td>${label}</td>
+            <td><button class="map-btn" data-field="${field}">Set</button></td>
+            <td id="map-label-${field}">${mappedTo}</td>
+        </tr>
+    `;
 }
 
-// --- Gamepad polling for mapping ---
-let lastGamepadState = null;
-function pollGamepadForMapping() {
-    if (!mappingActive) return;
-    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-    if (!gamepads[0]) return;
-    const gp = gamepads[0];
-    // Axis mapping
-    if (mappingActive.type === 'axis') {
-        for (let i = 0; i < gp.axes.length; ++i) {
-            if (Math.abs(gp.axes[i]) > 0.7) {
-                mapping[mappingActive.field] = i;
-                document.getElementById(mappingActive.field).value = i;
-                document.getElementById('mapping_status').textContent = `Mapped to Axis ${i + 1}`;
-                highlightMappingField(mappingActive.field, false);
-                mappingActive = null;
-                return;
-            }
+/**
+ * Hides the mapping modal and cancels any pending mapping operation.
+ */
+function hideMappingModal() {
+    const modal = document.getElementById('mapping_modal');
+    if (modal) modal.style.display = 'none';
+    if (state.mappingActive) {
+        const label = document.getElementById(`map-label-${state.mappingActive.field}`);
+        if (label) label.classList.remove('mapping-active');
+        state.mappingActive = null;
+    }
+}
+
+/**
+ * Initiates the process of mapping a control.
+ * @param {string} field - The mapping field ID to be mapped.
+ */
+function startMapping(field) {
+    // If another mapping is active, cancel it first
+    if (state.mappingActive) {
+        const oldLabel = document.getElementById(`map-label-${state.mappingActive.field}`);
+        if (oldLabel) oldLabel.classList.remove('mapping-active');
+    }
+
+    state.mappingActive = { field };
+    const label = document.getElementById(`map-label-${field}`);
+    label.textContent = 'Press a button or move an axis...';
+    label.classList.add('mapping-active');
+
+    // Set a timeout to automatically cancel if no input is received
+    setTimeout(() => {
+        if (state.mappingActive && state.mappingActive.field === field) {
+            updateMappingUI(field, state.mapping[field]); // Revert to old mapping
+            state.mappingActive = null;
         }
-    } else if (mappingActive.type === 'button') {
-        for (let i = 0; i < gp.buttons.length; ++i) {
-            if (gp.buttons[i].pressed) {
-                // Map to A/B/X/Y if possible
-                let btnName = ['A', 'B', 'X', 'Y'][i] || `Btn${i}`;
-                mapping[mappingActive.field] = btnName;
-                document.getElementById(mappingActive.field).value = btnName;
-                document.getElementById('mapping_status').textContent = `Mapped to ${btnName}`;
-                highlightMappingField(mappingActive.field, false);
-                mappingActive = null;
-                return;
-            }
+    }, 5000);
+}
+
+/**
+ * Called from the main gamepad loop to detect input for an active mapping.
+ * @param {Gamepad} gp - The gamepad object.
+ */
+function detectMappingInput(gp) {
+    if (!state.mappingActive) return;
+
+    // Check for button press
+    for (let i = 0; i < gp.buttons.length; i++) {
+        if (gp.buttons[i].pressed) {
+            const newMapping = { type: 'button', index: i };
+            state.mapping[state.mappingActive.field] = newMapping;
+            updateMappingUI(state.mappingActive.field, newMapping);
+            state.mappingActive = null;
+            return;
         }
-    } else if (mappingActive.type === 'dpad') {
-        // D-Pad is usually buttons 12-15
-        const dpadMap = { up: 12, down: 13, left: 14, right: 15 };
-        let dir = mappingActive.dpadDir;
-        let idx = dpadMap[dir];
-        if (gp.buttons[idx] && gp.buttons[idx].pressed) {
-            mapping[mappingActive.field] = 'both'; // or 'left'/'right' if you want to support split
-            document.getElementById(mappingActive.field).value = 'both';
-            document.getElementById('mapping_status').textContent = `Mapped to D-Pad ${dir}`;
-            highlightMappingField(mappingActive.field, false);
-            mappingActive = null;
+    }
+
+    // Check for axis movement
+    for (let i = 0; i < gp.axes.length; i++) {
+        const value = gp.axes[i];
+        if (Math.abs(value) > 0.8) {
+            const newMapping = { type: 'axis', index: i, direction: Math.sign(value) };
+            state.mapping[state.mappingActive.field] = newMapping;
+            updateMappingUI(state.mappingActive.field, newMapping);
+            state.mappingActive = null;
             return;
         }
     }
 }
 
-setInterval(pollGamepadForMapping, 100);
+/**
+ * Updates a single row in the mapping UI after a control has been set.
+ * @param {string} field - The mapping field ID.
+ * @param {object} mapping - The new mapping object.
+ */
+function updateMappingUI(field, mapping) {
+    const label = document.getElementById(`map-label-${field}`);
+    if (!label) return;
 
-function saveMapping() {
-    // Gather mapping from UI for all axis motors, motor functions, and logic functions
-    let newMap = {};
-    if (typeof axisMotors !== 'undefined' && axisMotors.length) {
-        axisMotors.forEach(motor => {
-            newMap[`axis_${motor.id}_axis`] = parseInt(document.getElementById(`axis_${motor.id}_axis`).value);
-            newMap[`axis_${motor.id}_rev`] = document.getElementById(`axis_${motor.id}_rev`).checked;
-            newMap[`axis_${motor.id}_dead`] = parseFloat(document.getElementById(`axis_${motor.id}_dead`).value);
-        });
-    }
-    if (typeof motorFunctions !== 'undefined' && motorFunctions.length) {
-        motorFunctions.forEach(fn => {
-            newMap[`motorfn_${fn.id}_fwd`] = document.getElementById(`motorfn_${fn.id}_fwd`).value;
-            newMap[`motorfn_${fn.id}_rev`] = document.getElementById(`motorfn_${fn.id}_rev`).value;
-        });
-    }
-    if (typeof logicFunctions !== 'undefined' && logicFunctions.length) {
-        logicFunctions.forEach(fn => {
-            newMap[`logicfn_${fn.id}_btn`] = document.getElementById(`logicfn_${fn.id}_btn`).value;
-        });
-    }
-    fetch('/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            action: 'save_mapping',
-            mapping: newMap,
-            drive_mode: driveMode
-        })
-    }).then(() => { mapping = newMap; alert('Mapping saved!'); });
-}
-
-function loadConfigAndRender() {
-    fetch('/play?config=1').then(r => r.json()).then(cfg => {
-        areaIP = cfg.area_ip || '';
-        fpvIP = cfg.fpv_ip || '';
-        viewMode = cfg.view_mode || 'area';
-        pipFlip = !!cfg.pip_flip;
-        driveMode = cfg.drive_mode || 'tank';
-        mapping = cfg.mapping || {};
-        auxMotors = cfg.aux_motors || [];
-        allMotors = cfg.motors || [];
-        vehicleType = cfg.vehicle_type || '';
-        document.getElementById('area_ip').value = areaIP;
-        document.getElementById('fpv_ip').value = fpvIP;
-        updateViewUI();
-        renderMappingUI();
-        updateDriveModeIndicator();
-    });
-}
-
-
-// --- Controller source toggle ---
-let controllerSource = 'ble'; // 'ble' or 'browser'
-
-function renderControllerSourceUI() {
-    const section = document.getElementById('controller_source_section');
-    if (!section) return;
-    section.innerHTML = `
-      <label><input type="radio" name="controller_source" value="ble" ${controllerSource === 'ble' ? 'checked' : ''}> Use BLE Gamepad</label>
-      <label style="margin-left:16px"><input type="radio" name="controller_source" value="browser" ${controllerSource === 'browser' ? 'checked' : ''}> Use Gamepad connected to this device</label>
-    `;
-    Array.from(section.querySelectorAll('input[name=controller_source]')).forEach(radio => {
-        radio.onchange = function () {
-            controllerSource = this.value;
-            renderControllerSections();
-        };
-    });
-}
-
-function renderControllerSections() {
-    renderControllerSourceUI();
-    document.getElementById('ble_controller_section').style.display = (controllerSource === 'ble') ? '' : 'none';
-    document.getElementById('browser_controller_section').style.display = (controllerSource === 'browser') ? '' : 'none';
-}
-
-// --- Browser Gamepad API ---
-let browserGamepadIndex = null;
-let browserGamepadState = null;
-let browserGamepadInterval = null;
-
-function startBrowserGamepad() {
-    if (browserGamepadInterval) clearInterval(browserGamepadInterval);
-    browserGamepadInterval = setInterval(pollBrowserGamepad, 50);
-}
-
-function stopBrowserGamepad() {
-    if (browserGamepadInterval) clearInterval(browserGamepadInterval);
-    browserGamepadInterval = null;
-}
-
-function pollBrowserGamepad() {
-    const gps = navigator.getGamepads ? navigator.getGamepads() : [];
-    let gp = null;
-    for (let i = 0; i < gps.length; ++i) {
-        if (gps[i]) { gp = gps[i]; browserGamepadIndex = i; break; }
-    }
-    browserGamepadState = gp;
-    renderBrowserGamepadUI();
-    if (gp) sendBrowserGamepadInput(gp);
-}
-
-function renderBrowserGamepadUI() {
-    const section = document.getElementById('browser_controller_section');
-    if (!section) return;
-    if (!browserGamepadState) {
-        section.innerHTML = '<div style="color:#888">No gamepad detected. Connect a controller and press any button.</div>';
-        return;
-    }
-    let html = `<div><b>Gamepad:</b> ${browserGamepadState.id}</div>`;
-    html += '<div><b>Axes:</b> ' + browserGamepadState.axes.map((v, i) => `A${i}:${v.toFixed(2)}`).join(' ') + '</div>';
-    html += '<div><b>Buttons:</b> ' + browserGamepadState.buttons.map((b, i) => `B${i}:${b.pressed ? '●' : '○'}`).join(' ') + '</div>';
-    section.innerHTML = html;
-}
-
-function sendBrowserGamepadInput(gp) {
-    if (!ws || ws.readyState !== 1) return;
-    // Axis motors: send axis value, apply reverse and deadzone
-    if (typeof axisMotors !== 'undefined' && axisMotors.length) {
-        axisMotors.forEach(motor => {
-            let axisIdx = mapping[`axis_${motor.id}_axis`] ?? 0;
-            let val = gp.axes[axisIdx] || 0;
-            if (mapping[`axis_${motor.id}_rev`]) val = -val;
-            if (Math.abs(val) < (mapping[`axis_${motor.id}_dead`] ?? 0.1)) val = 0;
-            ws.send(JSON.stringify({ action: 'axis_motor', id: motor.id, value: val }));
-        });
-    }
-    // Motor functions: send fwd/rev button state
-    if (typeof motorFunctions !== 'undefined' && motorFunctions.length) {
-        motorFunctions.forEach(fn => {
-            let fwdBtn = mapping[`motorfn_${fn.id}_fwd`] || 'A';
-            let revBtn = mapping[`motorfn_${fn.id}_rev`] || 'B';
-            let fwdIdx = { A: 0, B: 1, X: 2, Y: 3 }[fwdBtn];
-            let revIdx = { A: 0, B: 1, X: 2, Y: 3 }[revBtn];
-            let fwd = gp.buttons[fwdIdx]?.pressed;
-            let rev = gp.buttons[revIdx]?.pressed;
-            ws.send(JSON.stringify({ action: 'motor_function', id: fn.id, fwd, rev }));
-        });
-    }
-    // Logic functions: send button state
-    if (typeof logicFunctions !== 'undefined' && logicFunctions.length) {
-        logicFunctions.forEach(fn => {
-            let btn = mapping[`logicfn_${fn.id}_btn`] || 'A';
-            let btnIdx = { A: 0, B: 1, X: 2, Y: 3 }[btn];
-            let pressed = gp.buttons[btnIdx]?.pressed;
-            ws.send(JSON.stringify({ action: 'logic_function', id: fn.id, pressed }));
-        });
-    }
-}
-
-document.addEventListener('DOMContentLoaded', function () {
-    loadConfigAndRender();
-    renderControllerSections();
-    // Start browser gamepad polling if selected
-    if (controllerSource === 'browser') startBrowserGamepad();
-    // Toggle logic
-    document.getElementById('controller_source_section').addEventListener('change', function (e) {
-        if (e.target.name === 'controller_source') {
-            controllerSource = e.target.value;
-            renderControllerSections();
-            if (controllerSource === 'browser') startBrowserGamepad();
-            else stopBrowserGamepad();
+    label.classList.remove('mapping-active');
+    let mappedTo = 'Not Set';
+    if (mapping) {
+        if (mapping.type === 'button') {
+            mappedTo = `Button ${mapping.index}`;
+        } else if (mapping.type === 'axis') {
+            mappedTo = `Axis ${mapping.index} (${mapping.direction > 0 ? '+' : '-'})`;
         }
-    });
-});
-
-// Placeholder for Bluetooth scan
-function scanBT() {
-    document.getElementById('bt_status').textContent = 'Scanning... (not implemented)';
-    setTimeout(() => {
-        document.getElementById('bt_list').innerHTML = '<li>Controller 1 (mock)</li><li>Controller 2 (mock)</li>';
-        document.getElementById('bt_status').textContent = 'Select a controller to pair.';
-    }, 1200);
-}
-
-// Placeholder for D-Pad/Tank toggle
-function toggleDriveMode() {
-    // Toggle drive mode between 'tank' and 'dpad'
-    driveMode = (driveMode === 'tank') ? 'dpad' : 'tank';
-    // Update backend
-    fetch('/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            action: 'save_mapping',
-            mapping: mapping,
-            drive_mode: driveMode
-        })
-    }).then(() => {
-        updateDriveModeIndicator();
-        alert('Drive mode set to ' + driveMode.charAt(0).toUpperCase() + driveMode.slice(1));
-    });
-}
-
-function updateDriveModeIndicator() {
-    var indicator = document.getElementById('drive_mode_indicator');
-    if (indicator) {
-        indicator.textContent = driveMode.charAt(0).toUpperCase() + driveMode.slice(1);
     }
-}
-// Basic websocket helper for realtime control (extracted from play_page.py)
-var ws = null;
-function connectWS() {
-    if (ws && ws.readyState === 1) return;
-    try {
-        ws = new WebSocket('ws://' + location.host + '/ws');
-        ws.onopen = function () { console.log('WS open'); document.getElementById('conn_status').textContent = 'Connected'; };
-        ws.onclose = function () { console.log('WS closed'); document.getElementById('conn_status').textContent = 'Disconnected'; };
-        ws.onerror = function (e) { console.log('WS error', e); document.getElementById('conn_status').textContent = 'Error'; };
-        ws.onmessage = function (m) { console.log('WS msg', m.data); };
-    } catch (e) { console.log('WS init failed', e); document.getElementById('conn_status').textContent = 'Error'; }
+    label.textContent = mappedTo;
 }
 
-function disconnectWS() {
-    if (ws) { try { ws.close(); } catch (e) { } ws = null; }
-    document.getElementById('conn_status').textContent = 'Disconnected';
-}
-
-function sendCmd(obj) {
-    if (ws && ws.readyState === 1) { ws.send(JSON.stringify(obj)); }
-    else { console.log('WS not connected, cmd skipped', obj); }
-}
-
-// Placeholder: UI will call this with mapped values when implemented
-function sendTest() {
-    var left = document.getElementById('map_left').value;
-    var right = document.getElementById('map_right').value;
-    // example: drive both forward at 30%
-    sendCmd({ action: 'set', name: left, dir: 'fwd', power: 0.3 });
-    sendCmd({ action: 'set', name: right, dir: 'fwd', power: 0.3 });
+/**
+ * Saves the current mapping configuration to the server.
+ */
+function saveCurrentMapping() {
+    saveConfiguration('save_mapping', {
+        mapping: state.mapping,
+        drive_mode: state.driveMode,
+    });
+    alert('Mapping saved!');
+    hideMappingModal();
 }

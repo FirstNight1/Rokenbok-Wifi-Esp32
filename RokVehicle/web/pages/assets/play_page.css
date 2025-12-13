@@ -1,0 +1,168 @@
+/* play_page.css */
+
+body {
+    font-family: sans-serif;
+    background-color: #f4f4f9;
+    color: #333;
+    margin: 0;
+    padding: 1em;
+}
+
+/* Main layout: video area and sidebar */
+.main-flex {
+    display: flex;
+    gap: 1em;
+    align-items: flex-start;
+}
+
+.video-area {
+    flex: 1;
+    min-width: 0;
+}
+
+.sidebar {
+    flex: 0 0 300px;
+    background: #fff;
+    border-radius: 6px;
+    padding: 1em;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.section {
+    margin-bottom: 1.5em;
+}
+
+.section h2 {
+    margin: 0 0 0.5em 0;
+    font-size: 1.2em;
+    color: #1976d2;
+}
+
+.section:last-child {
+    margin-bottom: 0;
+}
+
+.bt-section {
+    border-top: 1px solid #eee;
+    padding-top: 1em;
+}
+
+.status-indicator {
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-weight: bold;
+    text-align: center;
+}
+
+.status-connected {
+    color: #388e3c;
+    background-color: #e8f5e9;
+}
+
+.status-disconnected {
+    color: #b71c1c;
+    background-color: #ffebee;
+}
+
+.status-error {
+    color: #fff;
+    background-color: #f44336;
+}
+
+.btn {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #fff;
+    cursor: pointer;
+    margin: 2px;
+}
+
+.btn.active {
+    background-color: #d1e7dd;
+    font-weight: bold;
+}
+
+#video_container {
+    position: relative;
+    width: 100%;
+    max-width: 800px;
+    aspect-ratio: 16 / 9;
+    background-color: #000;
+    margin-bottom: 1em;
+}
+
+.video-main,
+.video-pip {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.video-main {
+    width: 100%;
+    height: 100%;
+}
+
+.video-pip {
+    width: 30%;
+    height: 30%;
+    bottom: 10px;
+    right: 10px;
+    top: auto;
+    left: auto;
+    border: 2px solid #fff;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+video {
+    width: 100%;
+    height: 100%;
+}
+
+#mapping_modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
+    align-items: center;
+    justify-content: center;
+}
+
+#mapping_modal_content {
+    background: #fff;
+    padding: 24px;
+    border-radius: 8px;
+    max-width: 600px;
+    min-width: 340px;
+    box-shadow: 0 2px 16px #0003;
+    position: relative;
+}
+
+#close_mapping_modal {
+    position: absolute;
+    top: 8px;
+    right: 16px;
+    font-size: 24px;
+    cursor: pointer;
+}
+
+.map-cell {
+    padding: 8px;
+    border: 1px solid #ddd;
+    text-align: center;
+    cursor: pointer;
+    min-width: 80px;
+}
+
+.map-cell:hover {
+    background-color: #f0f0f0;
+}
+
+.map-cell.mapping {
+    background-color: #ffe082;
+}

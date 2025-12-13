@@ -109,9 +109,9 @@ function setWSStatus(connected) {
 function initWS() {
     try {
         ws = new WebSocket('ws://' + location.host + '/ws');
-        ws.onopen = function () { console.log('WS open'); setWSStatus(true); };
-        ws.onclose = function () { console.log('WS closed'); setWSStatus(false); setTimeout(initWS, 5000); };
-        ws.onerror = function (e) { console.log('WS error', e); setWSStatus(false); };
+        ws.onopen = function () { setWSStatus(true); };
+        ws.onclose = function () { setWSStatus(false); setTimeout(initWS, 5000); };
+        ws.onerror = function (e) { setWSStatus(false); };
         ws.onmessage = function (m) {
             try {
                 var pkt = JSON.parse(m.data);
@@ -125,7 +125,7 @@ function initWS() {
             } catch (e) { }
         };
     } catch (e) {
-        console.log('WS init failed', e); setWSStatus(false);
+        setWSStatus(false);
     }
 }
 
@@ -253,10 +253,16 @@ window.functionMotors = window.functionMotors || [];
 function runMotor(name, dir) {
     let duration = parseFloat(document.getElementById(name + "_duration").value);
     let isFunction = window.functionMotors && window.functionMotors.indexOf(name) !== -1;
-    let power = 1.0;
-    if (!isFunction) {
+    let power;
+
+    if (isFunction) {
+        // Function motors: use either 0 (off) or 100 (on)
+        power = 100;
+    } else {
+        // Axis motors: use 0-100 range from UI
         let powerPct = parseInt(document.getElementById(name + "_power").value);
-        power = Math.max(0, Math.min(1, powerPct / 100));
+        power = Math.max(0, Math.min(100, powerPct));
     }
+
     startMotor(name, dir, power, duration);
 }

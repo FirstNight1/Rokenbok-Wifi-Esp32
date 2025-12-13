@@ -88,15 +88,15 @@ NOTE: If you get stuck on a bad wifi network or set a bad static IP or similar, 
 # TODO List (Project-wide)
 
 - [ ] Remove all debug logging and print statements from all code (production cleanup)
-- [ ] Refactor and clean up every class for clarity and maintainability
+- [ ] Refactor and clean up every class for clarity and maintainability - suggest Claude Sonnet 4 to clean up GPT garbage.
 - [ ] Check every web page and Python file for syntax issues and errors
 - [ ] Fix: Crashes in the web server cause the REPL to hang; ensure graceful error handling and recovery
 - [ ] Fix: Nothing restarts gracefully after a crash; implement robust restart logic
 - [ ] Fix: WiFi retry logic—if WiFi fails the first time, subsequent retries immediately fail with 'WiFi Internal Error'; ensure retries are meaningful
 - [ ] Add setting a password to AP mode rather than always using 1234567890
 - [ ] Add a Readme.md in RokVehicle on flashing MicroPython and this program onto the board
-- [ ] Add documentation in this Readme.md on the Play page, using gamepads, assigning control methodology and buttons, using axis controllers, and connecting Bluetooth gamepads directly to the vehicle
-- [ ] Implement Play page
+- [ ] Add documentation in this Readme.md on the Play page, using gamepads, assigning control methodology and buttons, using axis controllers,
+- [ ] Implement Play page FPV items
 - [ ] Implement wifi scanning
 - [ ] Implement direct bluetooth controller usage (BLE only)
 - [ ] Test controller mapping and functionality on Play page
@@ -105,3 +105,6 @@ NOTE: If you get stuck on a bad wifi network or set a bad static IP or similar, 
 - [ ] Test FPV stream integration locally on play page
 - [ ] Play server instructions and setup
 - [ ] FPV controls to wake and shut down the board/stream, and rotate the camera orientation 90deg in case of using a battery pack sideways
+- [ ] Bluetooth gamepads directly
+- [ ] Test with a true dpad gamepad, not a dpad-axis gamepad.
+- [ ] Test with a two-stick gamepad (with dpad also)
