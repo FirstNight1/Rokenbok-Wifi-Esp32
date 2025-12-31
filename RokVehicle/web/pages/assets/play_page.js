@@ -203,10 +203,16 @@ function gamepadLoop() {
     const gp = navigator.getGamepads()[state.selectedGamepadIndex];
     if (!gp) return;
 
-    // If mapping UI is open, check for input to map.
-    if (state.mappingActive) {
-        detectMappingInput(gp);
-        return; // Don't process regular controls while mapping
+    // Check if mapping modal is open - don't send controls to vehicle
+    const mappingModal = document.getElementById('mapping_modal');
+    const isModalOpen = mappingModal && mappingModal.style.display === 'block';
+
+    // If mapping UI is open, check for input to map but don't send vehicle controls.
+    if (state.mappingActive || isModalOpen) {
+        if (state.mappingActive) {
+            detectMappingInput(gp);
+        }
+        return; // Don't process regular controls while mapping modal is open
     }
 
     if (!state.isConnected) {
@@ -718,6 +724,9 @@ function renderMappingUI() {
         });
     });
 
+    // Stop all motors when opening the modal to prevent unintended vehicle movement
+    stopAllMotors();
+
     modal.style.display = 'block';
 }
 
@@ -817,6 +826,9 @@ function hideMappingModal() {
         if (label) label.classList.remove('mapping-active');
         state.mappingActive = null;
     }
+
+    // Stop all motors when closing the modal to prevent stuck controls
+    stopAllMotors();
 }
 
 /**

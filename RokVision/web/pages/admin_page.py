@@ -121,9 +121,13 @@ def _valid_vehicle_types():
 def build_admin_page(cfg):
     """Build the admin page HTML with current configuration"""
     try:
+        # Use template caching - import here to avoid circular import
+        from web.web_server import _load_template
+
         # Load header navigation
-        with open("web/pages/assets/header_nav.html", "r") as f:
-            header_nav = f.read()
+        header_nav = _load_template("web/pages/assets/header_nav.html")
+        if not header_nav:
+            header_nav = "<div>Header not found</div>"
         header_nav = header_nav.replace(
             "{{ vehicle_name }}", cfg.get("vehicleName", "") or ""
         )
@@ -136,9 +140,26 @@ def build_admin_page(cfg):
             ]
         )
 
+        # Build vehicle type mapping for JavaScript
+        vehicle_type_map = {}
+        for t in VEHICLE_TYPES:
+            if t["typeName"] == "fpv":
+                vehicle_type_map[t["typeName"]] = "RokVision"
+            else:
+                vehicle_type_map[t["typeName"]] = t["tagName"]
+
+        # Convert to JavaScript object properties (comma-separated key-value pairs)
+        vehicle_type_js = ", ".join(
+            [
+                f'"{type_name}": "{tag_prefix}"'
+                for type_name, tag_prefix in vehicle_type_map.items()
+            ]
+        )
+
         # Load main admin page template
-        with open("web/pages/assets/admin_page.html", "r") as f:
-            html = f.read()
+        html = _load_template("web/pages/assets/admin_page.html")
+        if not html:
+            return "<html><body><h2>Admin page template not found</h2></body></html>"
 
         # Replace template variables
         framesize = str(cfg.get("cam_framesize", 4))
@@ -209,6 +230,7 @@ def build_admin_page(cfg):
             "{{ cam_hmirror }}": hmirror,
             "{{ cam_speffect }}": speffect,
             "{{ cam_stream_port }}": stream_port,
+            "{{vehicle_type_map}}": vehicle_type_js,
         }
 
         for placeholder, value in replacements.items():

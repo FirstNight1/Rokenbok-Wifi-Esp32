@@ -1,7 +1,15 @@
 import uasyncio as asyncio
 import sys
-from web.pages import wifi_page, admin_page, home_page, testing_page
+from web.pages import wifi_page, admin_page, home_page, testing_page, ota_page
 from variables.vars_store import load_config
+import gc
+
+# Import performance monitoring
+try:
+    from lib.performance_utils import perf_monitor, memory_pressure_check
+except Exception:
+    perf_monitor = None
+    memory_pressure_check = None
 
 try:
     import esp32
@@ -11,11 +19,16 @@ except ImportError:
     esp32 = None
     esp32_available = False
 
+# Template cache to avoid file I/O on every request
+_template_cache = {}
+_cache_enabled = True
+
 ROUTES = {
     "/": home_page,
     "/wifi": wifi_page,
     "/admin": admin_page,
     "/testing": testing_page,
+    "/ota": ota_page,
 }
 
 # Content type mapping for static assets
@@ -29,6 +42,30 @@ CONTENT_TYPES = {
 }
 
 
+def _load_template(filepath):
+    """Load and cache template files for better performance"""
+    global _template_cache
+
+    if not _cache_enabled or filepath not in _template_cache:
+        try:
+            with open(filepath, "r") as f:
+                content = f.read()
+            if _cache_enabled:
+                _template_cache[filepath] = content
+            return content
+        except Exception as e:
+            print(f"Template load error {filepath}: {e}")
+            return None
+    return _template_cache[filepath]
+
+
+def clear_template_cache():
+    """Clear template cache to free memory or reload templates"""
+    global _template_cache
+    _template_cache.clear()
+    gc.collect()
+
+
 def _get_content_type(filepath):
     """Get content type based on file extension"""
     for ext, ctype in CONTENT_TYPES.items():
@@ -38,7 +75,17 @@ def _get_content_type(filepath):
 
 
 async def handle_client(reader, writer):
+    client_ip = None
     try:
+        # Get client IP for logging
+        try:
+            client_ip = (
+                writer.get_extra_info("peername")[0]
+                if hasattr(writer, "get_extra_info")
+                else "unknown"
+            )
+        except Exception:
+            client_ip = "unknown"
 
         # --- Read request line ---
         req_line = await reader.readline()
@@ -67,21 +114,33 @@ async def handle_client(reader, writer):
         else:
             path = full_path
             query_string = ""
-        # version = parts[2] if len(parts) >= 3 else "HTTP/1.0"
+
+        # Log request for performance monitoring
+        if perf_monitor:
+            perf_monitor.log_request(path)
+
+        # Check memory pressure and force GC if needed
+        if memory_pressure_check and memory_pressure_check():
+            gc.collect()
 
         # --- Read headers until blank line ---
         headers = {}
-        while True:
+        header_count = 0
+        while header_count < 50:  # Limit headers to prevent DoS
             hdr = await reader.readline()
             if not hdr or hdr == b"\r\n":
                 break
             try:
                 line = hdr.decode().strip()
+                header_count += 1
             except Exception:
                 continue
             if ":" in line:
                 k, v = line.split(":", 1)
                 headers[k.strip().lower()] = v.strip()
+
+        # Yield control to prevent blocking
+        await asyncio.sleep(0)
 
         # --- Static assets (serve files under /assets/) ---
         if path.startswith("/assets/"):
@@ -101,27 +160,39 @@ async def handle_client(reader, writer):
             fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", sub.lstrip("/")])
 
             try:
-                stat = os.stat(fpath)
-                clen = stat[6]  # File size
-                ctype = _get_content_type(fpath)
+                # Use template caching for assets as well
+                content = _load_template(fpath)
+                if content:
+                    ctype = _get_content_type(fpath)
+                    clen = (
+                        len(content)
+                        if isinstance(content, bytes)
+                        else len(content.encode("utf-8"))
+                    )
 
-                writer.write(
-                    f"HTTP/1.1 200 OK\r\n"
-                    f"Content-Type: {ctype}\r\n"
-                    f"Content-Length: {clen}\r\n"
-                    f"Cache-Control: no-store\r\n\r\n"
-                )
-                await writer.drain()
+                    writer.write(
+                        f"HTTP/1.1 200 OK\r\n"
+                        f"Content-Type: {ctype}\r\n"
+                        f"Content-Length: {clen}\r\n"
+                        f"Cache-Control: no-store\r\n\r\n"
+                    )
+                    await writer.drain()
 
-                with open(fpath, "rb") as fh:
-                    while True:
-                        chunk = fh.read(1024)
-                        if not chunk:
-                            break
+                    # Send content in chunks
+                    content_bytes = (
+                        content
+                        if isinstance(content, bytes)
+                        else content.encode("utf-8")
+                    )
+                    for i in range(0, len(content_bytes), 1024):
+                        chunk = content_bytes[i : i + 1024]
                         writer.write(chunk)
                         await writer.drain()
-                await writer.aclose()
-                return
+                        # Yield control briefly between chunks
+                        await asyncio.sleep_ms(1)
+
+                    await writer.aclose()
+                    return
             except Exception:
                 # File not found - fall through to route handling
                 pass
@@ -170,9 +241,24 @@ async def handle_client(reader, writer):
                     # Fallback for pages that don't accept query_string
                     status, ctype, html = page.handle_get()
 
-                writer.write(f"HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\n\r\n")
-                writer.write(html)
+                # Send response in chunks to prevent blocking
+                header = f"HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\n\r\n"
+                writer.write(header)
                 await writer.drain()
+
+                # Chunked HTML delivery
+                if isinstance(html, str):
+                    html_bytes = html.encode("utf-8")
+                else:
+                    html_bytes = html
+
+                for i in range(0, len(html_bytes), 1024):
+                    chunk = html_bytes[i : i + 1024]
+                    writer.write(chunk)
+                    await writer.drain()
+                    # Brief yield between chunks
+                    await asyncio.sleep_ms(1)
+
                 await writer.aclose()
                 return
 

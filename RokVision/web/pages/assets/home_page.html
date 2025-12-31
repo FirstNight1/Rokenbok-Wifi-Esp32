@@ -1,5 +1,13 @@
 <html>
 
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RokVision Camera Control</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+    <link rel="alternate icon" href="/assets/favicon.ico">
+</head>
+
 <body>
     {{ header_nav }}
     <div style='max-width:600px;margin:32px auto 0 auto;text-align:center;'>
@@ -9,6 +17,15 @@
         <p><b>Battery Level:</b> <span id='vehicle_battery'>N/A</span></p>
         <p><b>MCU Temp:</b> <span id='mcu_temp'>N/A</span> &deg;C</p>
         <p><b>IP Address:</b> {{ ip }}</p>
+
+        <!-- Memory Information -->
+        <div style='background:#f5f5f5;padding:12px;border-radius:6px;margin:16px 0;'>
+            <h4 style='margin:0 0 8px 0;color:#333;'>Memory Usage</h4>
+            <p style='margin:4px 0;'><b>Free:</b> {{ mem_free }} bytes</p>
+            <p style='margin:4px 0;'><b>Allocated:</b> {{ mem_allocated }} bytes</p>
+            <p style='margin:4px 0;'><b>Total:</b> {{ mem_total }} bytes</p>
+            <p style='margin:4px 0;'><b>Usage:</b> {{ mem_usage_percent }}%</p>
+        </div>
     </div>
     <script>
         fetch('/status').then(r => r.json()).then(js => {

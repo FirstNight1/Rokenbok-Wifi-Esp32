@@ -1,20 +1,68 @@
 <html>
 
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Settings - Rokenbok Vehicle</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+    <link rel="alternate icon" href="/assets/favicon.ico">
+</head>
+
 <body>
     {{ header_nav }}
     <div style='max-width:600px;margin:32px auto 0 auto;'>
         <h2>Admin Settings</h2>
+
+        {{ led_status }}
+
         <form method="POST" action="/admin">
             <label>Vehicle Type:</label><br>
-            <select name="vehicleType">{{ type_options }}</select><br><br>
+            <select name="vehicleType" id="vehicleType" onchange="updateVehicleTag()">{{ type_options }}</select><br><br>
             <label>Vehicle Tag:</label><br>
-            <input name="vehicleTag" value="{{ vehicle_tag }}"><br><br>
+            <input name="vehicleTag" id="vehicleTag" value="{{ vehicle_tag }}"><br><br>
             <label>Vehicle Name:</label><br>
             <input name="vehicleName" value="{{ vehicle_name }}"><br><br>
             <button type="submit" name="save" value="1">Save</button>
             <button type="submit" name="cancel" value="1">Cancel</button>
         </form>
     </div>
+
+    <script>
+        // Vehicle type mapping (tagName -> typeName)
+        const vehicleTypeMapString = '{{vehicle_type_map}}';
+        const vehicleTypeMap = vehicleTypeMapString ? JSON.parse('{' + vehicleTypeMapString + '}') : {};
+
+        const originalTag = "{{ vehicle_tag }}";
+
+        function updateVehicleTag() {
+            const typeSelect = document.getElementById('vehicleType');
+            const tagInput = document.getElementById('vehicleTag');
+            const selectedType = typeSelect.value;
+
+            // Find the tag prefix for the selected type
+            const newTagName = vehicleTypeMap[selectedType] || selectedType;
+
+            // Extract the current suffix from the original tag
+            let suffix = "";
+            for (const [typeName, tagName] of Object.entries(vehicleTypeMap)) {
+                if (originalTag.startsWith(tagName + "-")) {
+                    suffix = originalTag.substring(tagName.length + 1);
+                    break;
+                }
+            }
+
+            // If no suffix found, use the original tag as suffix if it doesn't contain a dash
+            if (!suffix && !originalTag.includes("-")) {
+                suffix = originalTag;
+            } else if (!suffix && originalTag.includes("-")) {
+                // Use everything after the first dash
+                suffix = originalTag.substring(originalTag.indexOf("-") + 1);
+            }
+
+            // Update the tag input
+            tagInput.value = suffix ? newTagName + "-" + suffix : newTagName;
+        }
+    </script>
 </body>
 
 </html>

@@ -38,6 +38,11 @@ def default_config():
         "cam_rotate": 0,
         "cam_speffect": 0,  # 0 = none, 2 = grayscale, etc.
         "cam_stream_port": 8081,  # Camera stream port
+        # OTA settings
+        "ota_github_url": "https://github.com/FirstNight1/Rokenbok-Wifi-Esp32/tree/main/RokVision",
+        "ota_auto_backup": True,
+        "ota_last_update": None,
+        "ota_update_count": 0,
     }
 
 

@@ -26,6 +26,9 @@ def default_config():
         "static_gw": "",
         "static_dns": "",
         "motor_min": {},
+        "ota_github_url": "https://github.com/FirstNight1/Rokenbok-Wifi-Esp32/tree/main/RokVehicle",
+        "ota_auto_backup": True,
+        "ota_last_update": None,
     }
 
 

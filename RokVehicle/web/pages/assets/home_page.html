@@ -1,5 +1,13 @@
 <html>
 
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rokenbok Vehicle Control</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+    <link rel="alternate icon" href="/assets/favicon.ico">
+</head>
+
 <body>
     {{ header_nav }}
     <div style='max-width:600px;margin:32px auto 0 auto;text-align:center;'>
@@ -9,6 +17,7 @@
         <p><b>Busy Status:</b> <span id='vehicle_busy'>Loading...</span></p>
         <p><b>Battery Level:</b> <span id='vehicle_battery'>N/A</span></p>
         <p><b>MCU Temp:</b> <span id='mcu_temp'>N/A</span> &deg;C</p>
+        <p><b>Memory:</b> <span id='memory_info'>{{ memory_info }}</span></p>
         <p><b>IP Address:</b> {{ ip }}</p>
         <button class='play-now-btn' onclick="window.location='/play'">Play Now</button>
     </div>
@@ -21,10 +30,25 @@
             document.getElementById('vehicle_battery').textContent = js.battery !== undefined && js.battery !== null ? js.battery : 'N/A';
             // MCU temp
             document.getElementById('mcu_temp').textContent = (js.mcu_temp !== undefined && js.mcu_temp !== null) ? js.mcu_temp.toFixed(1) : 'N/A';
+            // Memory info from status endpoint
+            if (js.memory) {
+                const memKB = Math.round(js.memory.free / 1024);
+                document.getElementById('memory_info').textContent = `${memKB} KB free`;
+            }
             // Update header nav name if present
             var navs = document.getElementsByClassName('vehicle-name');
             if (navs.length > 0) navs[0].textContent = js.vehicleName || 'Unnamed Vehicle';
         });
+
+        // Auto-refresh memory info every 5 seconds
+        setInterval(() => {
+            fetch('/status').then(r => r.json()).then(js => {
+                if (js.memory) {
+                    const memKB = Math.round(js.memory.free / 1024);
+                    document.getElementById('memory_info').textContent = `${memKB} KB free`;
+                }
+            });
+        }, 5000);
     </script>
 </body>
 

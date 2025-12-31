@@ -1,10 +1,24 @@
 import uasyncio as asyncio
 import sys
-from web.pages import wifi_page, admin_page, home_page, testing_page, play_page
+from web.pages import (
+    wifi_page,
+    admin_page,
+    home_page,
+    testing_page,
+    play_page,
+    ota_page,
+)
 from variables.vars_store import load_config
-
+import gc
 
 import hashlib
+
+# Import performance monitoring
+try:
+    from lib.performance_utils import perf_monitor, memory_pressure_check
+except Exception:
+    perf_monitor = None
+    memory_pressure_check = None
 
 try:
     import esp32
@@ -16,17 +30,56 @@ WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 WS_CLIENT = None  # Only one controlling websocket client
 
+# Template cache to avoid file I/O on every request
+_template_cache = {}
+_cache_enabled = True
+
 ROUTES = {
     "/": home_page,
     "/wifi": wifi_page,
     "/admin": admin_page,
     "/testing": testing_page,
     "/play": play_page,
+    "/ota": ota_page,
 }
 
 
+def _load_template(filepath):
+    """Load and cache template files for better performance"""
+    global _template_cache
+
+    if not _cache_enabled or filepath not in _template_cache:
+        try:
+            with open(filepath, "r") as f:
+                content = f.read()
+            if _cache_enabled:
+                _template_cache[filepath] = content
+            return content
+        except Exception as e:
+            print(f"Template load error {filepath}: {e}")
+            return None
+    return _template_cache[filepath]
+
+
+def clear_template_cache():
+    """Clear template cache to free memory or reload templates"""
+    global _template_cache
+    _template_cache.clear()
+    gc.collect()
+
+
 async def handle_client(reader, writer):
+    client_ip = None
     try:
+        # Get client IP for logging
+        try:
+            client_ip = (
+                writer.get_extra_info("peername")[0]
+                if hasattr(writer, "get_extra_info")
+                else "unknown"
+            )
+        except Exception:
+            client_ip = "unknown"
 
         # --- Read request line ---
         req_line = await reader.readline()
@@ -55,21 +108,33 @@ async def handle_client(reader, writer):
         else:
             path = full_path
             query_string = ""
-        # version = parts[2] if len(parts) >= 3 else "HTTP/1.0"
+
+        # Log request for performance monitoring
+        if perf_monitor:
+            perf_monitor.log_request(path)
+
+        # Check memory pressure and force GC if needed
+        if memory_pressure_check and memory_pressure_check():
+            gc.collect()
 
         # --- Read headers until blank line ---
         headers = {}
-        while True:
+        header_count = 0
+        while header_count < 50:  # Limit headers to prevent DoS
             hdr = await reader.readline()
             if not hdr or hdr == b"\r\n":
                 break
             try:
                 line = hdr.decode().strip()
+                header_count += 1
             except Exception:
                 continue
             if ":" in line:
                 k, v = line.split(":", 1)
                 headers[k.strip().lower()] = v.strip()
+
+        # Yield control to prevent blocking
+        await asyncio.sleep(0)
 
         # If this is a WebSocket upgrade, handle it here (path /ws)
         if (
@@ -96,39 +161,67 @@ async def handle_client(reader, writer):
                 base_dir = "."
             # join parts into a single posix-style path
             fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", sub.lstrip("/")])
-            import os
 
-            try:
-                stat = os.stat(fpath)
-                clen = stat[6]
-                # simple content type detection
+            # Use cached template loading for assets too
+            content = _load_template(fpath)
+            if content:
+                # Determine content type
                 if fpath.endswith(".js"):
                     ctype = "application/javascript"
                 elif fpath.endswith(".css"):
                     ctype = "text/css"
-                elif fpath.endswith(".png"):
-                    ctype = "image/png"
-                elif fpath.endswith(".jpg") or fpath.endswith(".jpeg"):
-                    ctype = "image/jpeg"
+                elif fpath.endswith(".html"):
+                    ctype = "text/html"
                 else:
-                    ctype = "application/octet-stream"
-                cache_hdr = "Cache-Control: no-store"
+                    ctype = "text/plain"
+
+                # Send cached content
+                cache_hdr = "Cache-Control: max-age=300"  # 5 min cache
+                content_bytes = content.encode("utf-8")
                 writer.write(
-                    f"HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {clen}\r\n{cache_hdr}\r\n\r\n"
+                    f"HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {len(content_bytes)}\r\n{cache_hdr}\r\n\r\n"
                 )
                 await writer.drain()
-                with open(fpath, "rb") as fh:
-                    while True:
-                        chunk = fh.read(1024)
-                        if not chunk:
-                            break
-                        writer.write(chunk)
-                        await writer.drain()
+                writer.write(content_bytes)
+                await writer.drain()
                 await writer.aclose()
                 return
-            except Exception as e:
-                # not found - fall through to route handling / redirect
-                pass
+            else:
+                # Fallback to file streaming for binary assets
+                import os
+
+                try:
+                    stat = os.stat(fpath)
+                    clen = stat[6]
+                    # simple content type detection
+                    if fpath.endswith(".js"):
+                        ctype = "application/javascript"
+                    elif fpath.endswith(".css"):
+                        ctype = "text/css"
+                    elif fpath.endswith(".png"):
+                        ctype = "image/png"
+                    elif fpath.endswith(".jpg") or fpath.endswith(".jpeg"):
+                        ctype = "image/jpeg"
+                    else:
+                        ctype = "application/octet-stream"
+                    cache_hdr = "Cache-Control: max-age=300"
+                    writer.write(
+                        f"HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {clen}\r\n{cache_hdr}\r\n\r\n"
+                    )
+                    await writer.drain()
+                    with open(fpath, "rb") as fh:
+                        while True:
+                            chunk = fh.read(512)  # Smaller chunks for responsiveness
+                            if not chunk:
+                                break
+                            writer.write(chunk)
+                            await writer.drain()
+                            await asyncio.sleep(0)  # Yield between chunks
+                    await writer.aclose()
+                    return
+                except Exception as e:
+                    # not found - fall through to route handling / redirect
+                    pass
 
         # --- /status endpoint ---
         if path == "/status":
@@ -145,6 +238,18 @@ async def handle_client(reader, writer):
                     mcu_temp = esp32.mcu_temperature()
                 except Exception:
                     mcu_temp = None
+
+            # Add performance stats
+            perf_stats = {}
+            if perf_monitor:
+                try:
+                    perf_stats = perf_monitor.get_stats()
+                except Exception:
+                    pass
+
+            # Add memory info
+            memory_info = {"free": gc.mem_free(), "allocated": gc.mem_alloc()}
+
             resp = {
                 "type": cfg.get("vehicleType", "Unknown"),
                 "tag": cfg.get("vehicleTag", "N/A"),
@@ -153,13 +258,17 @@ async def handle_client(reader, writer):
                 "battery": None,
                 "mcu_temp": mcu_temp,
                 "project": "RokVehicle",
+                "performance": perf_stats,
+                "memory": memory_info,
             }
             import json
 
+            resp_json = json.dumps(resp)
+            resp_bytes = resp_json.encode("utf-8")
             writer.write(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
-                + json.dumps(resp)
+                f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(resp_bytes)}\r\n\r\n"
             )
+            writer.write(resp_bytes)
             await writer.drain()
             await writer.aclose()
             return
@@ -170,33 +279,81 @@ async def handle_client(reader, writer):
         if page:
             if method == "GET":
                 try:
-                    status, ctype, html = page.handle_get(query_string)
-                except TypeError:
-                    status, ctype, html = page.handle_get()
-                writer.write(f"HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\n\r\n")
-                writer.write(html)
-                await writer.drain()
-                await writer.aclose()
-                return
+                    try:
+                        status, ctype, html = page.handle_get(query_string)
+                    except TypeError:
+                        status, ctype, html = page.handle_get()
+
+                    # Convert to bytes once for efficiency
+                    html_bytes = html.encode("utf-8") if isinstance(html, str) else html
+
+                    writer.write(
+                        f"HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {len(html_bytes)}\r\n\r\n"
+                    )
+                    await writer.drain()
+
+                    # Send response in chunks for large pages
+                    chunk_size = 1024
+                    for i in range(0, len(html_bytes), chunk_size):
+                        chunk = html_bytes[i : i + chunk_size]
+                        writer.write(chunk)
+                        await writer.drain()
+                        if i % (chunk_size * 4) == 0:  # Yield every 4KB
+                            await asyncio.sleep(0)
+
+                    await writer.aclose()
+                    # Clear local variables to help GC
+                    del html, html_bytes
+                    gc.collect()
+                    return
+                except Exception as e:
+                    print(f"Error handling GET request for {path}: {e}")
+                    sys.print_exception(e)
+                    error_html = f"<html><body><h2>Page Error</h2><p>Error loading {path}: {e}</p><p><a href='/'>Return to Home</a></p></body></html>"
+                    error_bytes = error_html.encode("utf-8")
+                    writer.write(
+                        f"HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/html\r\nContent-Length: {len(error_bytes)}\r\n\r\n"
+                    )
+                    writer.write(error_bytes)
+                    await writer.drain()
+                    await writer.aclose()
+                    return
             elif method == "POST":
-                # Read POST body
-                content_length = int(headers.get("content-length", 0))
-                body = await reader.read(content_length) if content_length else b""
-                body = body.decode() if isinstance(body, bytes) else body
-                # Load config for POST handler
-                cfg = None
                 try:
-                    cfg = load_config()
-                except Exception:
-                    pass
-                new_cfg, redirect = page.handle_post(body, cfg)
-                writer.write(f"HTTP/1.1 303 See Other\r\nLocation: {redirect}\r\n\r\n")
-                await writer.drain()
-                await writer.aclose()
-                return
+                    # Read POST body
+                    content_length = int(headers.get("content-length", 0))
+                    body = await reader.read(content_length) if content_length else b""
+                    body = body.decode() if isinstance(body, bytes) else body
+                    # Load config for POST handler
+                    cfg = None
+                    try:
+                        cfg = load_config()
+                    except Exception:
+                        pass
+                    new_cfg, redirect = page.handle_post(body, cfg)
+                    writer.write(
+                        f"HTTP/1.1 303 See Other\r\nLocation: {redirect}\r\n\r\n"
+                    )
+                    await writer.drain()
+                    await writer.aclose()
+                    return
+                except Exception as e:
+                    print(f"Error handling POST request for {path}: {e}")
+                    sys.print_exception(e)
+                    writer.write(
+                        f"HTTP/1.1 303 See Other\r\nLocation: /?error=post_error\r\n\r\n"
+                    )
+                    await writer.drain()
+                    await writer.aclose()
+                    return
     except Exception as e:
         print("Async Web Server Error:", e)
         sys.print_exception(e)
+    finally:
+        try:
+            await writer.aclose()
+        except Exception:
+            pass
 
 
 async def start_web_server():
@@ -391,6 +548,7 @@ def run():
 
             # UDP command consumer: runs in main thread, processes queued UDP commands
             async def udp_consumer():
+                loop_count = 0
                 while True:
                     if cmd_queue:
                         cmds = cmd_queue.get_all()
@@ -410,6 +568,13 @@ def run():
                                 mc.motor_controller.stop_motor(p.get("name"))
                             elif action == "stop_all":
                                 mc.motor_controller.stop_all()
+
+                    # Periodic GC to prevent memory buildup in UDP processing
+                    loop_count += 1
+                    if loop_count % 500 == 0:  # Every ~5 seconds at 10ms sleep
+                        gc.collect()
+                        loop_count = 0
+
                     await asyncio.sleep(0.01)
 
             loop.create_task(udp_consumer())

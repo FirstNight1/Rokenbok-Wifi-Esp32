@@ -1,5 +1,13 @@
 <html>
 
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Settings - RokVision</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+    <link rel="alternate icon" href="/assets/favicon.ico">
+</head>
+
 <body>
     {{ header_nav }}
     <div style='max-width:900px;margin:32px auto 0 auto;display:flex;gap:32px;'>
@@ -7,9 +15,9 @@
             <h2>Admin Settings</h2>
             <form method="POST" action="/admin">
                 <label>Vehicle Type:</label><br>
-                <select name="vehicleType">{{ type_options }}</select><br><br>
+                <select name="vehicleType" onchange="updateVehicleTag()">{{ type_options }}</select><br><br>
                 <label>Vehicle Tag:</label><br>
-                <input name="vehicleTag" value="{{ vehicle_tag }}"><br><br>
+                <input name="vehicleTag" value="{{ vehicle_tag }}" id="vehicleTag"><br><br>
                 <label>Vehicle Name:</label><br>
                 <input name="vehicleName" value="{{ vehicle_name }}"><br><br>
                 <hr>
@@ -50,6 +58,41 @@
                 <button type="submit" name="cancel" value="1">Cancel</button>
 
                 <script>
+                    // Vehicle type mapping for dynamic tag updates
+                    var vehicleTypeMapString = '{{vehicle_type_map}}';
+                    var vehicleTypes = vehicleTypeMapString ? JSON.parse('{' + vehicleTypeMapString + '}') : {};
+                    var originalTag = "{{ vehicle_tag }}";
+
+                    function updateVehicleTag() {
+                        var typeSelect = document.querySelector('select[name="vehicleType"]');
+                        var tagInput = document.getElementById('vehicleTag');
+                        if (!typeSelect || !tagInput) return;
+
+                        var selectedType = typeSelect.value;
+                        var newPrefix = vehicleTypes[selectedType] || selectedType;
+
+                        // Get the current tag suffix (part after the dash)
+                        var currentTag = tagInput.value;
+                        var suffix = '';
+
+                        // Extract suffix from current tag if it has one
+                        if (currentTag.includes('-')) {
+                            var parts = currentTag.split('-');
+                            if (parts.length >= 2) {
+                                suffix = parts.slice(1).join('-'); // Keep everything after first dash
+                            }
+                        }
+
+                        // Generate new tag with the new prefix
+                        if (suffix) {
+                            tagInput.value = newPrefix + '-' + suffix;
+                        } else {
+                            // If no suffix, generate random one
+                            var randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+                            tagInput.value = newPrefix + '-' + randomSuffix;
+                        }
+                    }
+
                     // Update range slider display values
                     function updateSliderDisplay(sliderId, displayId) {
                         const slider = document.querySelector(`input[name="${sliderId}"]`);

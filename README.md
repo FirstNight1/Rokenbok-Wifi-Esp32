@@ -11,13 +11,13 @@ WARNING: This conversion is not designed to be easily reversible.  You will need
 
 If you intend to ever reverse this modification, I would suggest taking thorough pictures of the existing wiring connections on the controller board (pictures will be included as possible from my vehicles in the Vehicle Info folder as well), and carefully de-solder the motor, LED, and key wires from the board, that way they can be re-attached.  For ease of reversal, it may be worthwhile to utilize screw terminal blocks on your breakout and control boards, which will minimize re-soldering needed of the existing small vehicle wires.
 
-
 1. The Vehicle Info folder contains information and pictures of the vehicles modified so far, more pictures and information will be added as we convert more vehicles.  This information may also be useful for repairs to the vehicle.
 
 Parts used:
 2x DRV8833 breakout motor driver boards (generic)
-1x SeeedStudio XIAO ESP32-S3 controller board, flashed with Micropython and then the latest RokVehicle release (Instructions included in a Readme.md in RokVehicle)
+1x SeeedStudio XIAO ESP32-S3 controller board, flashed with Micropython firmware including PSRAM option (if applicable - used for OTA updates) and then the latest RokVehicle release (Instructions included in a Readme.md in RokVehicle)
 220ohm 1/4 watt resistors, if the vehicle has LEDs (optional)
+
 1x power switch (optional)
 (Wire - suggest 22 or 24ga, mounting tape or glue, solder, and other miscellanious electronics bits may be required)
 (This project requires mid-level soldering skills)
@@ -84,7 +84,11 @@ Parts used:
 NOTE: If you get stuck on a bad wifi network or set a bad static IP or similar, reboot the camera 3 times in rapid succession (less than 20 seconds between reboots), and it will force the camera into AP mode, so you can connect back and edit the wifi/IP settings.  Note that this will not clear your stored wifi network and credentials, so future reboots will still attempt to connect back to the configured network unless you make edits.
 10. The FPV camera should now be connected to your network or the vehicle's network, or you are using it in AP mode.  You can re-navigate to the admin page to configure any settings for the stream, and can also (if enabled) start and shutdown the camera stream from that page.  There is also a camera testing page that will show you the output of your stream as well, so you can test.  For the most part, you won't be accessing anything on this once you get the stream/camera configured, you just need the IP address of the FPV camera to use on the vehicle or server Play pages, which has a box for you to enter that IP address.  The FPV camera IP address and "stream address" to enter on those pages is displayed prominently on the home page.
 
-
+### LED Status Indicators (RokVehicle)
+If the vehicle is equipped with LEDs (or the remote key slot is wired for the remote key LED), the lights will indicate the vehicle status and it's wifi connection:
+- **Blinking on/off**: Startup or attempting to connect to WiFi
+- **Solid on**: Successfully connected to WiFi (STA mode) 
+- **Blinking bright/dim for 10 seconds, then solid**: Access Point (AP) mode active
 
 
 # TODO List (Project-wide)

@@ -41,14 +41,22 @@ def build_wifi_page(cfg, status_info=None):
 
     # Load header/nav HTML and inject vehicle_name
     try:
-        with open("web/pages/assets/header_nav.html", "r") as f:
-            header_nav = f.read().replace("{{ vehicle_name }}", vehicle_name)
+        # Use template caching - import here to avoid circular import
+        from web.web_server import _load_template
+
+        header_nav = _load_template("web/pages/assets/header_nav.html")
+        if not header_nav:
+            raise Exception("Template not found")
+        header_nav = header_nav.replace("{{ vehicle_name }}", vehicle_name)
     except Exception:
         header_nav = "<div style='background:#222;color:#fff;padding:12px;text-align:center'>Header unavailable</div>"
 
     try:
-        with open("web/pages/assets/wifi_page.html", "r") as f:
-            html = f.read()
+        from web.web_server import _load_template
+
+        html = _load_template("web/pages/assets/wifi_page.html")
+        if not html:
+            raise Exception("Template not found")
     except Exception:
         html = "<html><body><h2>WiFi page asset missing</h2></body></html>"
 
