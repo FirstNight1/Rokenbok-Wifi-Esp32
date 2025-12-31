@@ -63,16 +63,18 @@ This conversion is mostly reversible, as other than running a few wires and mayb
 1. The Vehicle Info folder contains information and pictures of the vehicles modified so far, more pictures and information will be added as we convert more vehicles.  This information may also be useful for repairs to the vehicle.
 
 Parts used:
-1x SeeedStudio XIAO ESP32-S3 Sense controller board with camera, flashed with Micropython and then the latest RokFPV release (Instructions included in a Readme.md in RokFPV)
+1x SeeedStudio XIAO ESP32-S3 Sense controller board with camera, flashed with Micropython and then the latest RokVision release (Instructions included in a Readme.md in RokVision)
 (Wire - suggest 22 or 24ga, mounting tape or glue, solder, and other miscellanious electronics bits may be required)
 (This project requires basic soldering skills)
+
+**IMPORTANT FIRMWARE REQUIREMENT:** The XIAO ESP32-S3 Sense requires special MicroPython firmware that includes camera support. The standard MicroPython firmware does not support the camera module. You MUST flash the camera-compatible firmware from the cnadler86/micropython-camera-API project before uploading the RokVision code. Complete setup instructions are provided in RokVision/Readme.md.
 
 2. Navigate to the Vehicle Info page for the vehicle you are looking to modify.  It will contain the mechanical steps and pictures needed to disassemble the vehicle.  You likely will not need to disassemble the vehicle further than removing the drive base.  For the best wire routing, you may wish however to disassemble the vehicle further to expose the best wire route.
 3. A wiring diagram and list is included in the base vehicle information page, the FPV wiring is the same for each vehicle, though the vehicle specifc pages may have additional information or pictures on FPV wire routing. The wiring diagram has a separate schematic with the additions for the FPV highlighted.
   * You basically only need to connect a power and ground to the FPV board.  If you are using the stock controller board, I strongly suggest either not making this modification or adding a separate switch in-line as well to turn off the FPV controller, so you don't drain the batteries (the stock controller board uses the radio key to sleep, which currently isn't supported on using here as a sleep signal - leave a note if this is strongly desired and it could be worked out).  The easier method I'd suggest if using an FPV camera with a stock vehicle controller is to use a separate small battery such as an Anker Nano power bank to power the FPV board, and just insert those together into the front of the vehicle, which is usually sized fairly sufficiently for it.  The camera angle is able to be rotated in case you wind up using a battery pack and it makes the camera sideways or upside down.
 
 4. After completing the hardware modifications, it is important to verify all wiring connections prior to powering on the vehicle.  Take a minute and double check your wiring against the circuit diagrams, and ensure all connections make sense (i.e. you aren't shorting the battery leads together anywhere).
-5. Hopefully you flashed the FPV software onto the controller before you put it in the vehicle, otherwise dig up a usb-c cord (right angle ones are available and can be helpful if you glued yourself into a jam) and follow those instructions in the RokFPV project now.
+5. Hopefully you flashed the camera-compatible MicroPython firmware and RokVision software onto the controller before you put it in the vehicle, otherwise dig up a usb-c cord (right angle ones are available and can be helpful if you glued yourself into a jam) and follow those instructions in the RokVision project now. **Note:** The camera requires special firmware - see RokVision/Readme.md for complete setup instructions.
 
 6. On initial startup of a new FPV board, it will create a Wifi Access Point (AP) that looks like FPV-loader-XYZABC.  This network name is the tag for the vehicle, and consists of "FPV-", the vehicle type, and it's unique tag.  The default vehicle type is loader, we'll update this shortly.  Connect a phone or computer to the access point.  The default password for the access point is 1234567890.  The camera should have an IP address of 192.168.4.1, and should assign your device an IP address of 192.168.4.2.
 7. Open Chrome (or an internet browser) on the device, and navigate to http://192.168.4.1, which should load the home page for the FPV Camera, and show various information about the controller.
@@ -108,3 +110,5 @@ NOTE: If you get stuck on a bad wifi network or set a bad static IP or similar, 
 - [ ] Bluetooth gamepads directly
 - [ ] Test with a true dpad gamepad, not a dpad-axis gamepad.
 - [ ] Test with a two-stick gamepad (with dpad also)
+
+'https://github.com/cnadler86/micropython-camera-API/releases/download/v0.6.1/mpy_cam-v1.27.0-ESP32_GENERIC_S3-SPIRAM_OCT.zip' -OutFile 'ESP32S3_camera_firmware.zip'"

@@ -1,0 +1,100 @@
+<html>
+
+<body>
+    {{ header_nav }}
+    <div style='max-width:900px;margin:32px auto 0 auto;display:flex;gap:32px;'>
+        <div style='flex:1;'>
+            <h2>Admin Settings</h2>
+            <form method="POST" action="/admin">
+                <label>Vehicle Type:</label><br>
+                <select name="vehicleType">{{ type_options }}</select><br><br>
+                <label>Vehicle Tag:</label><br>
+                <input name="vehicleTag" value="{{ vehicle_tag }}"><br><br>
+                <label>Vehicle Name:</label><br>
+                <input name="vehicleName" value="{{ vehicle_name }}"><br><br>
+                <hr>
+                <h3>Camera Settings</h3>
+                <p style="color:#666;font-size:0.9em;margin-bottom:20px;">
+                    <strong>Note:</strong> Camera setting adjustments will not take effect in the preview until after
+                    saving.
+                </p>
+                <label>Resolution:</label><br>
+                <select name="cam_framesize">
+                    {{ framesize_options }}
+                </select><br>
+                <small style="color:#666;">Higher resolutions may reduce frame rate.</small><br><br>
+                <label>JPEG Quality (1-100):</label><br>
+                <input type="range" name="cam_quality" min="10" max="100" value="{{ cam_quality }}">
+                <span id="qualityValue">{{ cam_quality }}</span><br>
+                <small style="color:#666;">Higher quality = larger files, lower FPS</small><br><br>
+                <label>Contrast:</label><br>
+                <input type="range" name="cam_contrast" min="-2" max="2" value="{{ cam_contrast }}">
+                <span id="contrastValue">{{ cam_contrast }}</span><br><br>
+                <label>Brightness:</label><br>
+                <input type="range" name="cam_brightness" min="-2" max="2" value="{{ cam_brightness }}">
+                <span id="brightnessValue">{{ cam_brightness }}</span><br><br>
+                <label>Saturation:</label><br>
+                <input type="range" name="cam_saturation" min="-2" max="2" value="{{ cam_saturation }}">
+                <span id="saturationValue">{{ cam_saturation }}</span><br><br>
+                <label>Vertical Flip:</label>
+                <input type="checkbox" name="cam_vflip" value="1" {{ vflip_checked }}><br>
+                <label>Horizontal Mirror:</label>
+                <input type="checkbox" name="cam_hmirror" value="1" {{ hmirror_checked }}><br><br>
+                <label>Special Effect:</label><br>
+                <select name="cam_speffect">
+                    {{ speffect_options }}
+                </select><br><br>
+                <label>Camera Stream Port:</label><br>
+                <input type="number" name="cam_stream_port" min="1" max="65535" value="{{ cam_stream_port }}"><br><br>
+                <button type="submit" name="save" value="1">Save Settings</button>
+                <button type="submit" name="cancel" value="1">Cancel</button>
+
+                <script>
+                    // Update range slider display values
+                    function updateSliderDisplay(sliderId, displayId) {
+                        const slider = document.querySelector(`input[name="${sliderId}"]`);
+                        const display = document.getElementById(displayId);
+                        if (slider && display) {
+                            display.textContent = slider.value;
+                            slider.oninput = function () {
+                                display.textContent = this.value;
+                            };
+                        }
+                    }
+
+                    // Initialize slider displays
+                    updateSliderDisplay('cam_quality', 'qualityValue');
+                    updateSliderDisplay('cam_contrast', 'contrastValue');
+                    updateSliderDisplay('cam_brightness', 'brightnessValue');
+                    updateSliderDisplay('cam_saturation', 'saturationValue');
+                </script>
+            </form>
+        </div>
+        <div style='width:340px;min-width:220px;text-align:center;'>
+            <h3>Camera Preview</h3>
+            <img id="cam_preview"
+                style="width:320px;height:240px;border:1px solid #888;background:#222;object-fit:cover;"
+                alt="Camera Preview"
+                onerror="this.style.display='none'; document.getElementById('preview_error').style.display='block';">
+            <div id="preview_error" style="display:none;padding:20px;color:#888;font-style:italic;">
+                Camera stream not available<br>
+                <small>Start camera stream on Testing page first</small>
+            </div>
+            <script>
+                // Dynamically set camera preview src based on current config
+                (function () {
+                    var port = '{{ cam_stream_port }}';
+                    var host = window.location.hostname;
+                    var img = document.getElementById('cam_preview');
+
+                    // Add a small delay to ensure stream server is ready
+                    setTimeout(function () {
+                        img.src = 'http://' + host + ':' + port + '/stream';
+                    }, 1000);
+                })();
+            </script>
+        </div>
+    </div>
+</body>
+
+</html>

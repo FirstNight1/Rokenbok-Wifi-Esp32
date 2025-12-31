@@ -1,0 +1,58 @@
+<html>
+
+<head>
+    <title>Camera Stream Test</title>
+    <style>
+        body {
+            font-family: Arial;
+            margin: 0;
+            background: #111;
+            color: #eee;
+        }
+
+        .stream-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .stream-view {
+            background: #222;
+            border: 2px solid #444;
+            border-radius: 12px;
+            margin-top: 32px;
+            box-shadow: 0 4px 24px #000a;
+        }
+    </style>
+</head>
+
+<body>
+    {{ header_nav }}
+    <div class="stream-container">
+        <h2>Camera Stream Test</h2>
+        <img id="cam_stream" class="stream-view" style="width:640px;height:480px;object-fit:cover;"
+            alt="Camera Stream Preview"
+            onerror="this.style.display='none'; document.getElementById('stream_error').style.display='block';">
+        <div id="stream_error" style="display:none;padding:20px;color:#888;font-style:italic;text-align:center;">
+            Camera stream not available<br>
+            <small>Check that camera stream server is running on port 8081</small>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var port = '{{ cam_stream_port }}';
+            var host = window.location.hostname;
+            var img = document.getElementById('cam_stream');
+
+            // Add a small delay to ensure stream server is ready
+            setTimeout(function () {
+                img.src = 'http://' + host + ':' + port + '/stream';
+            }, 1000);
+        })();
+    </script>
+</body>
+
+</html>

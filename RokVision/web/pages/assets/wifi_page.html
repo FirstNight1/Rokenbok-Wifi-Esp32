@@ -1,0 +1,72 @@
+<html>
+
+<body>
+    {{ header_nav }}
+    <div style='max-width:600px;margin:32px auto 0 auto;'>
+        <h2>WiFi Setup</h2>
+        {{ status_html }}
+        {{ error_msg }}
+        <form method="POST" action="/wifi">
+            <label>SSID:</label>
+            <div style='display:flex;align-items:center;gap:8px;'>
+                <input id="ssid_input" name="ssid" value="{{ ssid_val }}" autocomplete="off">
+            </div>
+            <br>
+            <label>Password:</label>
+            <input id="wifipass_input" name="wifipass" value="" autocomplete="off">
+            <span id="pw_warning" style="color:red;display:none;margin-left:8px;"></span>
+            <br>
+            <label>IP Configuration:</label><br>
+            <input type="radio" id="dhcp" name="ip_mode" value="dhcp" {{ dhcp_checked }}
+                onchange="toggleStaticFields()"> <label for="dhcp">DHCP (Automatic)</label>
+            <input type="radio" id="static" name="ip_mode" value="static" {{ static_checked }}
+                onchange="toggleStaticFields()"> <label for="static">Static IP</label>
+            <div id="static_fields" style="margin-top:8px;{{ static_fields_display }}">
+                <label>IP Address:</label><br>
+                <input name="static_ip" value="{{ static_ip }}" pattern="\d+\.\d+\.\d+\.\d+" autocomplete="off"><br>
+                <label>Subnet Mask:</label><br>
+                <input name="static_mask" value="{{ static_mask }}" pattern="\d+\.\d+\.\d+\.\d+" autocomplete="off"><br>
+                <label>Gateway:</label><br>
+                <input name="static_gw" value="{{ static_gw }}" pattern="\d+\.\d+\.\d+\.\d+" autocomplete="off"><br>
+                <label>DNS:</label><br>
+                <input name="static_dns" value="{{ static_dns }}" pattern="\d+\.\d+\.\d+\.\d+" autocomplete="off"><br>
+            </div>
+            <br>
+            <input type="submit" value="Save" onclick="return validateWifiForm();">
+        </form>
+    </div>
+    <script>
+        function toggleShowPW() {
+            var pw = document.getElementById('wifipass_input');
+            var btn = document.getElementById('showpw_btn');
+            if (pw.type === 'password') {
+                pw.type = 'text'; btn.textContent = '🙈 Hide';
+            } else {
+                pw.type = 'password'; btn.textContent = '👁️ Show';
+            }
+        }
+
+        function validateWifiForm() {
+            // No validation: allow empty SSID and password for AP mode or clearing config
+            return true;
+        }
+
+        function toggleStaticFields() {
+            var staticFields = document.getElementById('static_fields');
+            var staticRadio = document.getElementById('static');
+            if (staticRadio.checked) {
+                staticFields.style.display = '';
+            } else {
+                staticFields.style.display = 'none';
+                // Clear static IP fields
+                var fields = ['static_ip', 'static_mask', 'static_gw', 'static_dns'];
+                fields.forEach(function (f) {
+                    var inp = document.querySelector('input[name="' + f + '"]');
+                    if (inp) inp.value = '';
+                });
+            }
+        }
+    </script>
+</body>
+
+</html>

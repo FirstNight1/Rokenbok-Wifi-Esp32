@@ -1,0 +1,40 @@
+<html>
+
+<body>
+    {{ header_nav }}
+    <div style='max-width:600px;margin:32px auto 0 auto;text-align:center;'>
+        <p><b>Vehicle Name:</b> <span id='vehicle_name'>Loading...</span></p>
+        <p><b>Associated Vehicle Type:</b> <span id='vehicle_type'>Loading...</span></p>
+        <p><b>Vehicle Tag:</b> <span id='vehicle_tag'>Loading...</span></p>
+        <p><b>Battery Level:</b> <span id='vehicle_battery'>N/A</span></p>
+        <p><b>MCU Temp:</b> <span id='mcu_temp'>N/A</span> &deg;C</p>
+        <p><b>IP Address:</b> {{ ip }}</p>
+    </div>
+    <script>
+        fetch('/status').then(r => r.json()).then(js => {
+            document.getElementById('vehicle_name').textContent = js.vehicleName || 'Unnamed Vehicle';
+            document.getElementById('vehicle_type').textContent = js.type || 'Unknown';
+            document.getElementById('vehicle_tag').textContent = js.tag || 'N/A';
+            document.getElementById('vehicle_battery').textContent = js.battery !== undefined && js.battery !== null ? js.battery : 'N/A';
+            // MCU temp
+            document.getElementById('mcu_temp').textContent = (js.mcu_temp !== undefined && js.mcu_temp !== null) ? js.mcu_temp.toFixed(1) : 'N/A';
+            // Update header nav name if present
+            var navs = document.getElementsByClassName('vehicle-name');
+            if (navs.length > 0) navs[0].textContent = js.vehicleName || 'Unnamed Vehicle';
+        });
+    </script>
+    <div style="margin:48px auto 0 auto;max-width:900px;text-align:center;">
+        <div
+            style="font-size:2em;font-weight:bold;padding:24px 0 24px 0;background:#222;color:#f9e79f;border-radius:12px;">
+            Live Camera Stream<br>
+            <div style="font-size:14px;color:#ccc;margin-top:20px;">
+                Stream URL: <a href="{{ stream_url }}" target="_blank" style="color:#f9e79f;">{{ stream_url }}</a>
+            </div>
+            <div style="font-size:12px;color:#aaa;margin-top:10px;">
+                Use Admin or Stream Test pages to view the live feed
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

@@ -7,9 +7,11 @@ CONFIG_FILE = "config.json"
 
 DEFAULT_TYPE = "loader"
 
+
 def random_tag():
     chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     return "".join(random.choice(chars) for _ in range(6))
+
 
 def default_config():
     return {
@@ -23,32 +25,32 @@ def default_config():
         "static_mask": "",
         "static_gw": "",
         "static_dns": "",
-        "admin_user": "admin",
-        "admin_pass": encrypt_password("admin"),
-        # per-motor minimum duty (u16) mapping by motor name. Values are
-        # duty_u16 (0..65535). If a motor name is missing here, the
-        # MotorController will assume a safe default (40000).
         "motor_min": {},
     }
 
+
 # --- Password encryption helpers ---
 import ubinascii
+
+
 def encrypt_password(pw):
     key = b"rokadminpw"
     data = pw.encode()
-    key = (key * ((len(data) // len(key)) + 1))[:len(data)]
+    key = (key * ((len(data) // len(key)) + 1))[: len(data)]
     enc = bytes([a ^ b for a, b in zip(data, key)])
     return ubinascii.b2a_base64(enc).decode().strip()
+
 
 def check_password(pw, enc):
     key = b"rokadminpw"
     try:
         enc_bytes = ubinascii.a2b_base64(enc)
-        key = (key * ((len(enc_bytes) // len(key)) + 1))[:len(enc_bytes)]
+        key = (key * ((len(enc_bytes) // len(key)) + 1))[: len(enc_bytes)]
         dec = bytes([a ^ b for a, b in zip(enc_bytes, key)]).decode()
         return pw == dec
     except Exception:
         return False
+
 
 def load_config():
     # Ensure directory exists
