@@ -5,77 +5,75 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RokVehicle OTA Updates</title>
-    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="alternate icon" href="/assets/favicon.ico">
+    <link rel="icon" href="/assets/favicon.ico">
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: Arial, sans-serif;
             margin: 0;
-            padding: 0;
-            background-color: #f5f5f5;
+            padding: 20px;
+            background: #f0f0f0;
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 800px;
             margin: 0 auto;
-            padding: 20px;
         }
 
         .section {
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border: 1px solid #ddd;
             padding: 20px;
-            margin-bottom: 20px;
+            margin: 15px 0;
+            border-radius: 5px;
         }
 
         .section h2 {
-            color: #2c3e50;
-            border-bottom: 2px solid #3498db;
+            color: #333;
+            margin: 0 0 15px 0;
+            border-bottom: 2px solid #007cba;
             padding-bottom: 10px;
-            margin-top: 0;
         }
 
         .button {
-            background: #3498db;
+            background: #007cba;
             color: white;
             border: none;
-            padding: 12px 20px;
-            border-radius: 6px;
+            padding: 10px 20px;
             cursor: pointer;
-            font-size: 14px;
             margin: 5px;
-            transition: background-color 0.3s;
-            text-decoration: none;
-            display: inline-block;
+            border-radius: 3px;
+            font-size: 14px;
         }
 
         .button:hover {
-            background: #2980b9;
+            background: #005a87;
         }
 
         .button.success {
-            background: #27ae60;
+            background: #28a745;
         }
 
         .button.success:hover {
-            background: #229954;
+            background: #218838;
         }
 
         .button.warning {
-            background: #f39c12;
+            background: #ffc107;
+            color: black;
         }
 
         .button.warning:hover {
-            background: #e67e22;
+            background: #e0a800;
         }
 
-        .button.danger {
-            background: #e74c3c;
-        }
-
-        .button.danger:hover {
-            background: #c0392b;
+        .form-control {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-family: inherit;
+            margin-bottom: 10px;
+            box-sizing: border-box;
         }
 
         .form-group {
@@ -86,35 +84,14 @@
             display: block;
             margin-bottom: 5px;
             font-weight: bold;
-            color: #2c3e50;
-        }
-
-        .form-control {
-            width: 100%;
-            max-width: 400px;
-            padding: 10px;
-            border: 1px solid #bdc3c7;
-            border-radius: 4px;
-            font-size: 14px;
-            box-sizing: border-box;
-        }
-
-        .form-control:focus {
-            outline: none;
-            border-color: #3498db;
-            box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
-        }
-
-        textarea.form-control {
-            resize: vertical;
-            min-height: 120px;
-            font-family: 'Courier New', monospace;
+            color: #333;
         }
 
         .alert {
-            padding: 12px;
-            border-radius: 4px;
-            margin-bottom: 15px;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            font-weight: bold;
         }
 
         .alert.success {
@@ -129,69 +106,42 @@
             border: 1px solid #f5c6cb;
         }
 
-        .file-list {
-            max-height: 400px;
+        .alert.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .github-preview {
+            max-height: 250px;
             overflow-y: auto;
-            border: 1px solid #bdc3c7;
-            border-radius: 4px;
+            border: 1px solid #ccc;
             padding: 10px;
-            background: #fafafa;
-        }
-
-        .file-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px;
-            border-bottom: 1px solid #ecf0f1;
-            font-family: 'Courier New', monospace;
+            background: #f8f8f8;
+            font-family: monospace;
             font-size: 12px;
+            border-radius: 3px;
+            margin-top: 10px;
         }
 
-        .file-item:last-child {
-            border-bottom: none;
+        .upload-area {
+            border: 2px dashed #ccc;
+            padding: 30px;
+            text-align: center;
+            background: #fafafa;
+            border-radius: 5px;
+            transition: border-color 0.3s;
         }
 
-        .file-info {
-            flex-grow: 1;
+        .upload-area.dragover {
+            border-color: #007cba;
+            background: #e7f3ff;
         }
 
-        .file-size {
-            color: #7f8c8d;
-            margin-left: 10px;
-        }
-
-        .file-actions {
-            flex-shrink: 0;
-        }
-
-        .file-actions button {
-            padding: 4px 8px;
-            font-size: 11px;
-            margin-left: 5px;
-        }
-
-        .loading {
-            display: none;
-            color: #3498db;
-            font-style: italic;
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 20px;
-            background: #ecf0f1;
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 10px 0;
-            display: none;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: #3498db;
-            width: 0%;
-            transition: width 0.3s;
+        .upload-instructions {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 15px;
         }
 
         .two-column {
@@ -203,77 +153,17 @@
             flex: 1;
         }
 
-        .github-preview {
-            max-height: 300px;
-            overflow-y: auto;
-            border: 1px solid #bdc3c7;
-            border-radius: 4px;
-            padding: 10px;
-            background: #f8f9fa;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-        }
-
-        .github-preview-item {
-            padding: 4px 0;
-            border-bottom: 1px solid #e9ecef;
-        }
-
-        .system-info {
-            background: #2c3e50;
-            color: white;
-            padding: 15px;
-            border-radius: 6px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-        }
-
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .status-message {
-            padding: 10px;
-            border-radius: 4px;
-            margin: 10px 0;
-            display: none;
-        }
-
         @media (max-width: 768px) {
-            .container {
-                padding: 10px;
-            }
-
             .two-column {
                 flex-direction: column;
             }
-
-            .form-control {
-                max-width: 100%;
+            
+            .container {
+                margin: 0 10px;
             }
-        }
-
-        /* Loading animation */
-        .spinner {
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #3498db;
-            border-radius: 50%;
-            width: 16px;
-            height: 16px;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            margin-right: 8px;
-        }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
+            
+            .section {
+                padding: 15px;
             }
         }
     </style>
@@ -283,299 +173,257 @@
     {{ header_nav }}
 
     <div class="container">
-        <h1 style="color: #2c3e50; text-align: center;">OTA Application Updates</h1>
+        <h1 style="text-align: center; color: #333; margin-bottom: 30px;">OTA Updates</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 30px;">
+            Upload complete RokVehicle folders or download latest updates from GitHub
+        </p>
 
-        <!-- Status messages -->
         <div id="status-messages"></div>
 
         <div class="two-column">
-            <!-- Left column -->
             <div class="column">
-                <!-- File Upload Section -->
                 <div class="section">
-                    <h2>📁 File Upload</h2>
+                    <h2>📁 Folder Upload</h2>
+                    <p class="upload-instructions">
+                        Upload a complete RokVehicle folder to update all files at once. 
+                        Select the entire folder containing all Python files and subdirectories.
+                    </p>
+                    
                     <form method="POST" id="upload-form">
-                        <input type="hidden" name="action" value="upload_file">
-
-                        <div class="form-group">
-                            <label for="filename">File Path:</label>
-                            <input type="text" id="filename" name="filename" class="form-control"
-                                placeholder="e.g., main.py or web/pages/new_page.py" required>
-                            <small style="color: #7f8c8d;">Specify the complete path where the file should be
-                                saved</small>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="file-content">File Content:</label>
-                            <textarea id="file-content" name="file_content" class="form-control"
-                                placeholder="Paste your file content here..." required></textarea>
-                        </div>
-
-                        <button type="submit" class="button success">📤 Upload File</button>
-                        <div class="loading" id="upload-loading">
-                            <div class="spinner"></div>Uploading...
-                        </div>
-                    </form>
-                </div>
-
-                <!-- GitHub Sync Section -->
-                <div class="section">
-                    <h2>🐙 GitHub Synchronization</h2>
-                    <form method="POST" id="github-form">
-                        <input type="hidden" name="action" value="github_sync">
-
-                        <div class="form-group">
-                            <label for="github-url">GitHub Repository URL:</label>
-                            <input type="text" id="github-url" name="github_url" class="form-control"
-                                value="{{ github_url }}" placeholder="https://github.com/user/repo/tree/branch/folder">
-                            <small style="color: #7f8c8d;">
-                                Format: https://github.com/owner/repo/tree/branch/folder<br>
-                                Example: https://github.com/FirstNight1/Rokenbok-Wifi-Esp32/tree/main/RokVehicle
-                            </small>
-                        </div>
-
-                        <div class="form-group">
-                            <div class="checkbox-group">
-                                <input type="checkbox" id="auto-backup" name="auto_backup" {{ auto_backup_checked }}>
-                                <label for="auto-backup">Create backup before sync</label>
+                        <input type="hidden" name="action" value="upload_folder">
+                        
+                        <div class="upload-area" id="upload-area">
+                            <div class="form-group">
+                                <label>📂 Select RokVehicle Folder:</label>
+                                <input type="file" name="files" class="form-control" 
+                                       webkitdirectory directory multiple required 
+                                       accept=".py,.txt,.html,.css,.js,.json,.md">
                             </div>
+                            <p style="margin: 0; color: #888;">
+                                Click above to select folder, or drag and drop a folder here
+                            </p>
                         </div>
-
-                        <button type="button" class="button" onclick="previewGitHub()">👁️ Preview Changes</button>
-                        <button type="submit" class="button warning" onclick="return confirmSync()">🔄 Sync from
-                            GitHub</button>
-
-                        <div class="loading" id="github-loading">
-                            <div class="spinner"></div>Syncing...
+                        
+                        <div style="margin-top: 15px; text-align: center;">
+                            <button type="submit" class="button success">🚀 Upload Folder</button>
+                            <button type="button" onclick="restartDevice()" class="button warning">🔄 Restart Device</button>
                         </div>
                     </form>
-
-                    <!-- GitHub Preview Area -->
-                    <div id="github-preview-container" style="display: none;">
-                        <h3>Files to be downloaded:</h3>
-                        <div id="github-preview" class="github-preview"></div>
-                    </div>
                 </div>
             </div>
 
-            <!-- Right column -->
             <div class="column">
-                <!-- Current Files Section -->
                 <div class="section">
-                    <h2>📋 Current Files</h2>
-                    <button type="button" class="button" onclick="loadFileList()">🔄 Refresh List</button>
-                    <div class="loading" id="files-loading">
-                        <div class="spinner"></div>Loading files...
-                    </div>
-                    <div id="file-list" class="file-list">
-                        Click "Refresh List" to load current files
-                    </div>
-                </div>
-
-                <!-- System Management Section -->
-                <div class="section">
-                    <h2>⚙️ System Management</h2>
-
-                    <form method="POST" style="display: inline-block; margin: 5px;">
-                        <input type="hidden" name="action" value="create_backup">
-                        <button type="submit" class="button success">💾 Create Backup</button>
+                    <h2>🐙 GitHub Integration</h2>
+                    <p class="upload-instructions">
+                        Download the latest RokVehicle code directly from the GitHub repository.
+                    </p>
+                    
+                    <form id="github-form">
+                        <input type="hidden" name="action" value="github_download">
+                        
+                        <div class="form-group">
+                            <label>Repository:</label>
+                            <input type="text" name="repo" class="form-control" 
+                                   value="FirstNight1/Rokenbok-Wifi-Esp32"
+                                   placeholder="username/repository">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Branch:</label>
+                            <input type="text" name="ref" class="form-control" 
+                                   value="main" placeholder="main">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Folder:</label>
+                            <input type="text" name="folder" class="form-control" 
+                                   value="RokVehicle" placeholder="RokVehicle" readonly>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>File Filter (leave blank for all files):</label>
+                            <input type="text" name="path_filter" class="form-control" 
+                                   value="" placeholder="*.py (optional filter)">
+                        </div>
+                        
+                        <div style="text-align: center;">
+                            <button type="button" onclick="previewGitHub()" class="button">👁️ Preview Files</button>
+                            <button type="button" onclick="downloadFromGitHub()" class="button success">⬇️ Download & Update</button>
+                        </div>
                     </form>
-
-                    <form method="POST" style="display: inline-block; margin: 5px;">
-                        <input type="hidden" name="action" value="restore_backup">
-                        <button type="submit" class="button warning"
-                            onclick="return confirm('Restore from backup? This will overwrite current files.')">
-                            🔄 Restore Backup
-                        </button>
-                    </form>
-
-                    <form method="POST" style="display: inline-block; margin: 5px;">
-                        <input type="hidden" name="action" value="restart_system">
-                        <button type="submit" class="button danger"
-                            onclick="return confirm('Really restart the system? This will disconnect you temporarily.')">
-                            🔄 Restart System
-                        </button>
-                    </form>
-                </div>
-
-                <!-- System Info Section -->
-                <div class="section">
-                    <h2>ℹ️ System Information</h2>
-                    <div class="system-info">
-                        <div><strong>Vehicle:</strong> {{ vehicle_name }}</div>
-                        <div><strong>Memory:</strong> {{ memory_info }}</div>
-                        <div><strong>Platform:</strong> ESP32-S3 MicroPython</div>
-                        <div><strong>OTA Status:</strong> Ready</div>
-                    </div>
+                    
+                    <div id="github-preview" class="github-preview" style="display:none;"></div>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        // Show status messages based on URL parameters
-        function showStatusMessage() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const statusContainer = document.getElementById('status-messages');
+        document.addEventListener('DOMContentLoaded', () => {
+            setupUploadForm();
+            setupDragDrop();
+        });
 
-            if (urlParams.has('success')) {
-                const message = urlParams.get('success');
-                const alertDiv = document.createElement('div');
-                alertDiv.className = 'alert success';
-                alertDiv.innerHTML = getSuccessMessage(message);
-                statusContainer.appendChild(alertDiv);
-            }
-
-            if (urlParams.has('error')) {
-                const message = urlParams.get('error');
-                const alertDiv = document.createElement('div');
-                alertDiv.className = 'alert error';
-                alertDiv.innerHTML = getErrorMessage(message);
-                statusContainer.appendChild(alertDiv);
-            }
+        function setupUploadForm() {
+            document.getElementById('upload-form').addEventListener('submit', handleUpload);
+            
+            // Update file input to show selected folder name
+            const fileInput = document.querySelector('input[type="file"]');
+            fileInput.addEventListener('change', (e) => {
+                const files = e.target.files;
+                if (files.length > 0) {
+                    const folderName = files[0].webkitRelativePath.split('/')[0];
+                    showStatus(`Selected folder: ${folderName} (${files.length} files)`, 'info');
+                }
+            });
         }
 
-        function getSuccessMessage(code) {
-            const messages = {
-                'file_uploaded': '✅ File uploaded successfully!',
-                'file_deleted': '✅ File deleted successfully!',
-                'sync_completed': '✅ GitHub sync completed!',
-                'preview_ready': '✅ Preview ready - check the preview area',
-                'backup_created': '✅ Backup created successfully!',
-                'backup_restored': '✅ System restored from backup!',
-                'settings_saved': '✅ Settings saved successfully!',
-                'restarting': '🔄 System is restarting...'
-            };
-            return messages[code] || '✅ Operation completed successfully!';
+        function setupDragDrop() {
+            const uploadArea = document.getElementById('upload-area');
+            
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    // Set files to the file input
+                    const fileInput = document.querySelector('input[type="file"]');
+                    fileInput.files = files;
+                    
+                    // Trigger change event
+                    const event = new Event('change', { bubbles: true });
+                    fileInput.dispatchEvent(event);
+                }
+            });
         }
 
-        function getErrorMessage(code) {
-            const messages = {
-                'no_filename': '❌ Please specify a filename',
-                'no_content': '❌ Please provide file content',
-                'upload_failed': '❌ File upload failed',
-                'delete_failed': '❌ File deletion failed',
-                'sync_failed': '❌ GitHub sync failed',
-                'invalid_url': '❌ Invalid GitHub URL format',
-                'backup_failed': '❌ Backup creation failed',
-                'restore_failed': '❌ Backup restore failed'
-            };
-            return messages[code] || '❌ An error occurred: ' + code;
-        }
-
-        function loadFileList() {
-            const loading = document.getElementById('files-loading');
-            const fileList = document.getElementById('file-list');
-
-            loading.style.display = 'block';
-            fileList.innerHTML = '';
-
-            fetch('/ota?action=list_files')
-                .then(response => response.json())
-                .then(data => {
-                    loading.style.display = 'none';
-
-                    if (data.error) {
-                        fileList.innerHTML = `<div style="color: red;">Error: ${data.error}</div>`;
-                        return;
-                    }
-
-                    if (data.files && data.files.length > 0) {
-                        fileList.innerHTML = data.files.map(file => `
-                            <div class="file-item">
-                                <div class="file-info">
-                                    <strong>${file.path}</strong>
-                                    <span class="file-size">${file.size_formatted}</span>
-                                </div>
-                                <div class="file-actions">
-                                    <button class="button" style="padding: 4px 8px; font-size: 11px;" 
-                                            onclick="downloadFile('${file.path}')">📥</button>
-                                    <button class="button danger" style="padding: 4px 8px; font-size: 11px;" 
-                                            onclick="deleteFile('${file.path}')">🗑️</button>
-                                </div>
-                            </div>
-                        `).join('');
-                    } else {
-                        fileList.innerHTML = '<div>No files found</div>';
-                    }
-                })
-                .catch(error => {
-                    loading.style.display = 'none';
-                    fileList.innerHTML = `<div style="color: red;">Error loading files: ${error}</div>`;
-                });
-        }
-
-        function downloadFile(filename) {
-            window.open(`/ota?action=download_file&file=${encodeURIComponent(filename)}`, '_blank');
-        }
-
-        function deleteFile(filename) {
-            if (confirm(`Really delete '${filename}'?`)) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.innerHTML = `
-                    <input type="hidden" name="action" value="delete_file">
-                    <input type="hidden" name="filename" value="${filename}">
-                `;
-                document.body.appendChild(form);
-                form.submit();
-            }
-        }
-
-        function previewGitHub() {
-            const githubUrl = document.getElementById('github-url').value;
-            if (!githubUrl) {
-                alert('Please enter a GitHub URL');
+        async function handleUpload(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const files = document.querySelector('input[type="file"]').files;
+            
+            if (files.length === 0) {
+                showStatus('Please select a folder to upload', 'error');
                 return;
             }
-
-            const container = document.getElementById('github-preview-container');
-            const preview = document.getElementById('github-preview');
-
-            preview.innerHTML = '<div class="spinner"></div>Loading preview...';
-            container.style.display = 'block';
-
-            fetch(`/ota?action=github_preview&url=${encodeURIComponent(githubUrl)}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        preview.innerHTML = `<div style="color: red;">Error: ${data.error}</div>`;
-                        return;
-                    }
-
-                    if (data.files && data.files.length > 0) {
-                        preview.innerHTML = data.files.map(file => `
-                            <div class="github-preview-item">
-                                📄 ${file.path} <span style="color: #7f8c8d;">(${file.size} bytes)</span>
-                            </div>
-                        `).join('');
-                    } else {
-                        preview.innerHTML = '<div>No files found in repository</div>';
-                    }
-                })
-                .catch(error => {
-                    preview.innerHTML = `<div style="color: red;">Error: ${error}</div>`;
-                });
+            
+            showStatus(`Uploading ${files.length} files...`, 'info');
+            
+            try {
+                const response = await fetch('/ota', { method: 'POST', body: formData });
+                const result = await response.json();
+                showStatus(
+                    result.message || `Upload complete: ${files.length} files processed`, 
+                    result.success ? 'success' : 'error'
+                );
+            } catch (error) {
+                showStatus('Upload failed: ' + error.message, 'error');
+            }
         }
 
-        function confirmSync() {
-            return confirm('This will download files from GitHub and overwrite existing files. Continue?');
+        async function previewGitHub() {
+            const form = document.getElementById('github-form');
+            const formData = new FormData(form);
+            formData.set('action', 'github_preview');
+
+            showStatus('Loading preview from GitHub...', 'info');
+            
+            try {
+                const response = await fetch('/ota', { method: 'POST', body: formData });
+                const result = await response.json();
+
+                if (result.success && result.files) {
+                    const preview = document.getElementById('github-preview');
+                    preview.innerHTML = result.files
+                        .map(f => `<div>📄 ${f.path} <span style="color:#666;">(${f.size} bytes)</span></div>`)
+                        .join('');
+                    preview.style.display = 'block';
+                    showStatus(`Found ${result.files.length} files in repository`, 'success');
+                } else {
+                    showStatus(result.message || 'Preview failed', 'error');
+                }
+            } catch (error) {
+                showStatus('Preview failed: ' + error.message, 'error');
+            }
         }
 
-        // Form submission loading states
-        document.getElementById('upload-form').addEventListener('submit', function () {
-            document.getElementById('upload-loading').style.display = 'block';
-        });
+        async function downloadFromGitHub() {
+            if (!confirm('Download and replace all files from GitHub? This will overwrite existing files.')) {
+                return;
+            }
+            
+            const form = document.getElementById('github-form');
+            const formData = new FormData(form);
+            formData.set('action', 'github_download');
 
-        document.getElementById('github-form').addEventListener('submit', function () {
-            document.getElementById('github-loading').style.display = 'block';
-        });
+            showStatus('Downloading from GitHub...', 'info');
+            
+            try {
+                const response = await fetch('/ota', { method: 'POST', body: formData });
+                const result = await response.json();
+                showStatus(
+                    result.message || 'Download and update complete', 
+                    result.success ? 'success' : 'error'
+                );
+                
+                if (result.success) {
+                    setTimeout(() => {
+                        if (confirm('Files updated successfully. Restart device to apply changes?')) {
+                            restartDevice();
+                        }
+                    }, 2000);
+                }
+            } catch (error) {
+                showStatus('Download failed: ' + error.message, 'error');
+            }
+        }
 
-        // Initialize page
-        document.addEventListener('DOMContentLoaded', function () {
-            showStatusMessage();
-            loadFileList();
-        });
+        async function restartDevice() {
+            if (!confirm('Are you sure you want to restart the device?')) return;
+            
+            showStatus('Restarting device...', 'info');
+            
+            try {
+                const formData = new FormData();
+                formData.append('action', 'restart');
+                await fetch('/ota', { method: 'POST', body: formData });
+                showStatus('Device is restarting...', 'success');
+                
+                setTimeout(() => {
+                    showStatus('Attempting to reconnect...', 'info');
+                    setTimeout(() => location.reload(), 5000);
+                }, 3000);
+            } catch (error) {
+                showStatus('Restart request sent (connection lost as expected)', 'success');
+                setTimeout(() => location.reload(), 8000);
+            }
+        }
+
+        function showStatus(message, type) {
+            const container = document.getElementById('status-messages');
+            const alertClass = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            container.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            
+            // Auto-hide success messages after 8 seconds
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    if (container.innerHTML.includes(message)) {
+                        container.innerHTML = '';
+                    }
+                }, 8000);
+            }
+        }
     </script>
 </body>
 

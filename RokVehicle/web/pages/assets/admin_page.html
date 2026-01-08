@@ -4,8 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Settings - Rokenbok Vehicle</title>
-    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="alternate icon" href="/assets/favicon.ico">
+    <link rel="icon" href="/assets/favicon.ico">
 </head>
 
 <body>
@@ -17,7 +16,8 @@
 
         <form method="POST" action="/admin">
             <label>Vehicle Type:</label><br>
-            <select name="vehicleType" id="vehicleType" onchange="updateVehicleTag()">{{ type_options }}</select><br><br>
+            <select name="vehicleType" id="vehicleType" onchange="updateVehicleTag()">{{ type_options
+                }}</select><br><br>
             <label>Vehicle Tag:</label><br>
             <input name="vehicleTag" id="vehicleTag" value="{{ vehicle_tag }}"><br><br>
             <label>Vehicle Name:</label><br>
@@ -28,9 +28,9 @@
     </div>
 
     <script>
-        // Vehicle type mapping (tagName -> typeName)
-        const vehicleTypeMapString = '{{vehicle_type_map}}';
-        const vehicleTypeMap = vehicleTypeMapString ? JSON.parse('{' + vehicleTypeMapString + '}') : {};
+
+        // Vehicle type mapping (typeName -> tagName)
+        const vehicleTypeMap = JSON.parse('{{ vehicle_type_map }}');
 
         const originalTag = "{{ vehicle_tag }}";
 

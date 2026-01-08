@@ -77,16 +77,19 @@ def _valid_vehicle_types():
 
 def build_admin_page(cfg):
     # Build dropdown for vehicle types using typeFriendlyName
-    type_options = "".join(
-        [
-            f"<option value='{t['typeName']}' {'selected' if cfg.get('vehicleType')==t['typeName'] else ''}>{t.get('typeFriendlyName', t['typeName'])}</option>"
-            for t in VEHICLE_TYPES
-        ]
-    )
 
-    # Build JavaScript mapping of typeName -> tagName for dynamic tag updates
-    vehicle_type_map = ", ".join(
-        [f'"{t["typeName"]}": "{t["tagName"]}"' for t in VEHICLE_TYPES]
+    # Build dropdown for vehicle types as a single line, no extra whitespace
+    type_options = "".join(
+        f"<option value='{t['typeName']}'{' selected' if cfg.get('vehicleType')==t['typeName'] else ''}>{t.get('typeFriendlyName', t['typeName'])}</option>"
+        for t in VEHICLE_TYPES
+    )
+    type_options = type_options.replace("\n", "").replace("\r", "").replace("  ", " ")
+
+    # Build JSON mapping of typeName -> tagName for dynamic tag updates, single line
+    import json
+
+    vehicle_type_map = json.dumps(
+        {t["typeName"]: t["tagName"] for t in VEHICLE_TYPES}, separators=(",", ":")
     )
 
     vehicle_tag = cfg.get("vehicleTag") or ""
@@ -105,11 +108,14 @@ def build_admin_page(cfg):
 
         html = _load_template("web/pages/assets/admin_page.html")
         if html:
-            html = html.replace("{{ header_nav }}", header_nav)
-            html = html.replace("{{ type_options }}", type_options)
-            html = html.replace("{{ vehicle_tag }}", vehicle_tag)
-            html = html.replace("{{ vehicle_name }}", vehicle_name)
-            html = html.replace("{{vehicle_type_map}}", vehicle_type_map)
+            # Ensure all template replacements are single-line and whitespace-free
+            html = html.replace(
+                "{{ header_nav }}", header_nav.strip().replace("\n", "")
+            )
+            html = html.replace("{{ type_options }}", type_options.strip())
+            html = html.replace("{{ vehicle_tag }}", vehicle_tag.strip())
+            html = html.replace("{{ vehicle_name }}", vehicle_name.strip())
+            html = html.replace("{{vehicle_type_map}}", vehicle_type_map.strip())
             html = html.replace("{{ led_status }}", "")  # Remove LED status display
         else:
             html = (

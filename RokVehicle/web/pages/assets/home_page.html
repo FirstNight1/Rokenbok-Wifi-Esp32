@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rokenbok Vehicle Control</title>
-    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="alternate icon" href="/assets/favicon.ico">
 </head>
 
 <body>
@@ -22,33 +20,24 @@
         <button class='play-now-btn' onclick="window.location='/play'">Play Now</button>
     </div>
     <script>
+        // Single status fetch - no auto-refresh
         fetch('/status').then(r => r.json()).then(js => {
             document.getElementById('vehicle_name').textContent = js.vehicleName || 'Unnamed Vehicle';
             document.getElementById('vehicle_type').textContent = js.type || 'Unknown';
             document.getElementById('vehicle_tag').textContent = js.tag || 'N/A';
             document.getElementById('vehicle_busy').textContent = js.busy ? 'In Use' : 'Available';
             document.getElementById('vehicle_battery').textContent = js.battery !== undefined && js.battery !== null ? js.battery : 'N/A';
-            // MCU temp
             document.getElementById('mcu_temp').textContent = (js.mcu_temp !== undefined && js.mcu_temp !== null) ? js.mcu_temp.toFixed(1) : 'N/A';
-            // Memory info from status endpoint
             if (js.memory) {
                 const memKB = Math.round(js.memory.free / 1024);
                 document.getElementById('memory_info').textContent = `${memKB} KB free`;
             }
-            // Update header nav name if present
             var navs = document.getElementsByClassName('vehicle-name');
             if (navs.length > 0) navs[0].textContent = js.vehicleName || 'Unnamed Vehicle';
+        }).catch(e => {
+            console.log('Status fetch failed:', e);
+            // Keep static values if fetch fails
         });
-
-        // Auto-refresh memory info every 5 seconds
-        setInterval(() => {
-            fetch('/status').then(r => r.json()).then(js => {
-                if (js.memory) {
-                    const memKB = Math.round(js.memory.free / 1024);
-                    document.getElementById('memory_info').textContent = `${memKB} KB free`;
-                }
-            });
-        }, 5000);
     </script>
 </body>
 

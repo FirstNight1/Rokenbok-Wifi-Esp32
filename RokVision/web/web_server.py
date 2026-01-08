@@ -38,6 +38,8 @@ CONTENT_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
+    ".ico": "image/x-icon",
+    ".gif": "image/gif",
     ".html": "text/html",
 }
 
@@ -63,6 +65,60 @@ def clear_template_cache():
     """Clear template cache to free memory or reload templates"""
     global _template_cache
     _template_cache.clear()
+    gc.collect()
+
+
+async def precache_critical_assets():
+    """Pre-load critical static assets to improve page load performance"""
+    global _cache_enabled
+
+    if not _cache_enabled:
+        return
+
+    print("Pre-caching critical assets...")
+
+    # Critical assets in order of size/importance for RokVision
+    critical_assets = [
+        "ota_page.html",  # 15KB - largest asset (optimized from 21KB)
+        "admin_page.html",  # 8KB - admin interface
+        "wifi_page.html",  # 4KB - wifi config
+        "home_page.html",  # 3KB - home page
+        "testing_page.html",  # 2KB - testing page
+        "header_nav.html",  # 2KB - navigation
+    ]
+
+    # Get base directory for assets
+    base_file = __file__
+    if "/" in base_file:
+        base_dir = base_file.rsplit("/", 1)[0]
+    elif "\\" in base_file:
+        base_dir = base_file.rsplit("\\", 1)[0]
+    else:
+        base_dir = "."
+
+    cached_count = 0
+    total_size = 0
+
+    for asset in critical_assets:
+        fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", asset])
+        content = _load_template(fpath)
+        if content:
+            cached_count += 1
+            total_size += len(content)
+            print(f"  Cached: {asset} ({len(content)} bytes)")
+        else:
+            print(f"  Failed: {asset}")
+
+        # Check memory pressure and yield control
+        if memory_pressure_check and memory_pressure_check():
+            print(
+                f"  Memory pressure detected, stopping pre-cache after {cached_count} assets"
+            )
+            break
+
+        await asyncio.sleep_ms(1)  # Yield to prevent blocking
+
+    print(f"Pre-cache complete: {cached_count} assets, {total_size} bytes total")
     gc.collect()
 
 
@@ -142,6 +198,16 @@ async def handle_client(reader, writer):
         # Yield control to prevent blocking
         await asyncio.sleep(0)
 
+        # --- Favicon request (redirect to assets) ---
+        if path == "/favicon.ico":
+            # Redirect to the actual favicon location
+            writer.write(
+                b"HTTP/1.1 301 Moved Permanently\r\nLocation: /assets/favicon.ico\r\nCache-Control: max-age=86400\r\n\r\n"
+            )
+            await writer.drain()
+            await writer.aclose()
+            return
+
         # --- Static assets (serve files under /assets/) ---
         if path.startswith("/assets/"):
             import os
@@ -160,8 +226,24 @@ async def handle_client(reader, writer):
             fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", sub.lstrip("/")])
 
             try:
-                # Use template caching for assets as well
-                content = _load_template(fpath)
+                # Check if this is a binary asset type that should not be templated
+                is_binary = (
+                    fpath.endswith(".ico")
+                    or fpath.endswith(".png")
+                    or fpath.endswith(".jpg")
+                    or fpath.endswith(".jpeg")
+                    or fpath.endswith(".gif")
+                    or fpath.endswith(".woff")
+                    or fpath.endswith(".woff2")
+                    or fpath.endswith(".ttf")
+                )
+
+                # Use template caching for text assets only
+                if not is_binary:
+                    content = _load_template(fpath)
+                else:
+                    content = None
+
                 if content:
                     ctype = _get_content_type(fpath)
                     clen = (
@@ -193,6 +275,36 @@ async def handle_client(reader, writer):
 
                     await writer.aclose()
                     return
+                else:
+                    # Fallback to file streaming for binary assets
+                    try:
+                        stat = os.stat(fpath)
+                        clen = stat[6]
+                        ctype = _get_content_type(fpath)
+
+                        writer.write(
+                            f"HTTP/1.1 200 OK\r\n"
+                            f"Content-Type: {ctype}\r\n"
+                            f"Content-Length: {clen}\r\n"
+                            f"Cache-Control: no-store\r\n\r\n"
+                        )
+                        await writer.drain()
+
+                        with open(fpath, "rb") as fh:
+                            while True:
+                                chunk = fh.read(
+                                    512
+                                )  # Smaller chunks for responsiveness
+                                if not chunk:
+                                    break
+                                writer.write(chunk)
+                                await writer.drain()
+                                await asyncio.sleep_ms(1)  # Yield between chunks
+                        await writer.aclose()
+                        return
+                    except Exception:
+                        # File not found - fall through to route handling
+                        pass
             except Exception:
                 # File not found - fall through to route handling
                 pass
@@ -288,6 +400,9 @@ async def handle_client(reader, writer):
 
 async def start_web_server():
     """Start the web server and keep it running"""
+    # Pre-cache critical assets for faster page loads
+    await precache_critical_assets()
+
     server = await asyncio.start_server(handle_client, "0.0.0.0", 80)
     print("Web server started on port 80")
 

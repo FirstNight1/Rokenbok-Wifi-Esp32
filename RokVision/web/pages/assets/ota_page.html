@@ -4,199 +4,107 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RokVision OTA Updates</title>
-    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
-    <link rel="alternate icon" href="/assets/favicon.ico">
+    <title>RokVehicle OTA Updates</title>
+    <link rel="icon" href="/assets/favicon.ico">
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: Arial, sans-serif;
             margin: 0;
-            padding: 0;
-            background-color: #f5f5f5;
+            padding: 20px;
+            background: #f0f0f0;
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1000px;
             margin: 0 auto;
-            padding: 20px;
         }
 
         .section {
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            padding: 20px;
-            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
         }
 
         .section h2 {
-            color: #2c3e50;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 10px;
-            margin-top: 0;
+            color: #333;
+            margin: 0 0 10px 0;
         }
 
         .button {
-            background: #3498db;
+            background: #007cba;
             color: white;
             border: none;
-            padding: 12px 20px;
-            border-radius: 6px;
+            padding: 8px 15px;
             cursor: pointer;
-            font-size: 14px;
-            margin: 5px;
-            transition: background-color 0.3s;
-            text-decoration: none;
-            display: inline-block;
+            margin: 3px;
         }
 
         .button:hover {
-            background: #2980b9;
+            background: #005a87;
         }
 
         .button.success {
-            background: #27ae60;
-        }
-
-        .button.success:hover {
-            background: #229954;
+            background: #28a745;
         }
 
         .button.warning {
-            background: #f39c12;
-        }
-
-        .button.warning:hover {
-            background: #e67e22;
+            background: #ffc107;
+            color: black;
         }
 
         .button.danger {
-            background: #e74c3c;
-        }
-
-        .button.danger:hover {
-            background: #c0392b;
-        }
-
-        .form-group {
-            margin-bottom: 15px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-            color: #2c3e50;
+            background: #dc3545;
         }
 
         .form-control {
             width: 100%;
-            max-width: 400px;
-            padding: 10px;
-            border: 1px solid #bdc3c7;
-            border-radius: 4px;
-            font-size: 14px;
-            box-sizing: border-box;
-        }
-
-        .form-control:focus {
-            outline: none;
-            border-color: #3498db;
-            box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
-        }
-
-        textarea.form-control {
-            resize: vertical;
-            min-height: 120px;
-            font-family: 'Courier New', monospace;
+            padding: 6px;
+            border: 1px solid #ccc;
+            font-family: monospace;
         }
 
         .alert {
-            padding: 12px;
-            border-radius: 4px;
-            margin-bottom: 15px;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
         }
 
         .alert.success {
             background: #d4edda;
             color: #155724;
-            border: 1px solid #c3e6cb;
         }
 
         .alert.error {
             background: #f8d7da;
             color: #721c24;
-            border: 1px solid #f5c6cb;
         }
 
         .file-list {
-            max-height: 400px;
+            max-height: 300px;
             overflow-y: auto;
-            border: 1px solid #bdc3c7;
-            border-radius: 4px;
-            padding: 10px;
-            background: #fafafa;
+            border: 1px solid #ccc;
+            padding: 8px;
+            background: #f9f9f9;
         }
 
         .file-item {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            padding: 8px;
-            border-bottom: 1px solid #ecf0f1;
-            font-family: 'Courier New', monospace;
+            padding: 4px 0;
+            border-bottom: 1px solid #eee;
+            font-family: monospace;
             font-size: 12px;
         }
 
-        .file-item:last-child {
-            border-bottom: none;
-        }
-
-        .file-info {
-            flex-grow: 1;
-        }
-
-        .file-size {
-            color: #7f8c8d;
-            margin-left: 10px;
-        }
-
-        .file-actions {
-            flex-shrink: 0;
-        }
-
-        .file-actions button {
-            padding: 4px 8px;
-            font-size: 11px;
-            margin-left: 5px;
-        }
-
         .loading {
-            display: none;
-            color: #3498db;
+            color: #007cba;
             font-style: italic;
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 20px;
-            background: #ecf0f1;
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 10px 0;
-            display: none;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: #3498db;
-            width: 0%;
-            transition: width 0.3s;
         }
 
         .two-column {
             display: flex;
-            gap: 20px;
+            gap: 15px;
         }
 
         .column {
@@ -204,76 +112,26 @@
         }
 
         .github-preview {
-            max-height: 300px;
+            max-height: 200px;
             overflow-y: auto;
-            border: 1px solid #bdc3c7;
-            border-radius: 4px;
-            padding: 10px;
-            background: #f8f9fa;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-        }
-
-        .github-preview-item {
-            padding: 4px 0;
-            border-bottom: 1px solid #e9ecef;
+            border: 1px solid #ccc;
+            padding: 8px;
+            background: #f8f8f8;
+            font-family: monospace;
+            font-size: 11px;
         }
 
         .system-info {
-            background: #2c3e50;
+            background: #333;
             color: white;
-            padding: 15px;
-            border-radius: 6px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-        }
-
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .status-message {
             padding: 10px;
-            border-radius: 4px;
-            margin: 10px 0;
-            display: none;
+            font-family: monospace;
+            font-size: 11px;
         }
 
-        @media (max-width: 768px) {
-            .container {
-                padding: 10px;
-            }
-
+        @media (max-width: 600px) {
             .two-column {
                 flex-direction: column;
-            }
-
-            .form-control {
-                max-width: 100%;
-            }
-        }
-
-        /* Loading animation */
-        .spinner {
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #3498db;
-            border-radius: 50%;
-            width: 16px;
-            height: 16px;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            margin-right: 8px;
-        }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
             }
         }
     </style>
@@ -283,299 +141,288 @@
     {{ header_nav }}
 
     <div class="container">
-        <h1 style="color: #2c3e50; text-align: center;">OTA Application Updates</h1>
+        <h1 style="text-align: center; color: #333;">OTA Updates</h1>
 
-        <!-- Status messages -->
         <div id="status-messages"></div>
 
         <div class="two-column">
-            <!-- Left column -->
             <div class="column">
-                <!-- File Upload Section -->
                 <div class="section">
-                    <h2>📁 File Upload</h2>
+                    <h2>File Upload</h2>
                     <form method="POST" id="upload-form">
                         <input type="hidden" name="action" value="upload_file">
-
-                        <div class="form-group">
-                            <label for="filename">File Path:</label>
-                            <input type="text" id="filename" name="filename" class="form-control"
-                                placeholder="e.g., main.py or web/pages/new_page.py" required>
-                            <small style="color: #7f8c8d;">Specify the complete path where the file should be
-                                saved</small>
+                        <div style="margin-bottom: 10px;">
+                            <label>File:</label><br>
+                            <input type="file" name="file" class="form-control" required>
                         </div>
-
-                        <div class="form-group">
-                            <label for="file-content">File Content:</label>
-                            <textarea id="file-content" name="file_content" class="form-control"
-                                placeholder="Paste your file content here..." required></textarea>
+                        <div style="margin-bottom: 10px;">
+                            <label>Target Path:</label><br>
+                            <input type="text" name="path" class="form-control" placeholder="e.g., /main.py">
                         </div>
-
-                        <button type="submit" class="button success">📤 Upload File</button>
-                        <div class="loading" id="upload-loading">
-                            <div class="spinner"></div>Uploading...
-                        </div>
+                        <button type="submit" class="button">Upload</button>
                     </form>
                 </div>
 
-                <!-- GitHub Sync Section -->
                 <div class="section">
-                    <h2>🐙 GitHub Synchronization</h2>
-                    <form method="POST" id="github-form">
-                        <input type="hidden" name="action" value="github_sync">
-
-                        <div class="form-group">
-                            <label for="github-url">GitHub Repository URL:</label>
-                            <input type="text" id="github-url" name="github_url" class="form-control"
-                                value="{{ github_url }}" placeholder="https://github.com/user/repo/tree/branch/folder">
-                            <small style="color: #7f8c8d;">
-                                Format: https://github.com/owner/repo/tree/branch/folder<br>
-                                Example: https://github.com/FirstNight1/Rokenbok-Wifi-Esp32/tree/main/RokVision
-                            </small>
-                        </div>
-
-                        <div class="form-group">
-                            <div class="checkbox-group">
-                                <input type="checkbox" id="auto-backup" name="auto_backup" {{ auto_backup_checked }}>
-                                <label for="auto-backup">Create backup before sync</label>
-                            </div>
-                        </div>
-
-                        <button type="button" class="button" onclick="previewGitHub()">👁️ Preview Changes</button>
-                        <button type="submit" class="button warning" onclick="return confirmSync()">🔄 Sync from
-                            GitHub</button>
-
-                        <div class="loading" id="github-loading">
-                            <div class="spinner"></div>Syncing...
-                        </div>
-                    </form>
-
-                    <!-- GitHub Preview Area -->
-                    <div id="github-preview-container" style="display: none;">
-                        <h3>Files to be downloaded:</h3>
-                        <div id="github-preview" class="github-preview"></div>
-                    </div>
+                    <h2>File Manager</h2>
+                    <button onclick="refreshFiles()" class="button">Refresh</button>
+                    <button onclick="deleteAllFiles()" class="button danger">Delete All</button>
+                    <div id="file-list" class="file-list">Loading...</div>
                 </div>
             </div>
 
-            <!-- Right column -->
             <div class="column">
-                <!-- Current Files Section -->
                 <div class="section">
-                    <h2>📋 Current Files</h2>
-                    <button type="button" class="button" onclick="loadFileList()">🔄 Refresh List</button>
-                    <div class="loading" id="files-loading">
-                        <div class="spinner"></div>Loading files...
-                    </div>
-                    <div id="file-list" class="file-list">
-                        Click "Refresh List" to load current files
-                    </div>
+                    <h2>GitHub Integration</h2>
+                    <form id="github-form">
+                        <input type="hidden" name="action" value="github_download">
+                        <div style="margin-bottom: 10px;">
+                            <label>Repository:</label><br>
+                            <input type="text" name="repo" class="form-control" value="FirstNight1/Rokenbok-Wifi-Esp32"
+                                placeholder="username/repository">
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                            <label>Branch:</label><br>
+                            <input type="text" name="ref" class="form-control" value="main" placeholder="main">
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                            <label>Folder:</label><br>
+                            <input type="text" name="folder" class="form-control" value="RokVision"
+                                placeholder="RokVision" readonly>
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                            <label>File Filter:</label><br>
+                            <input type="text" name="path_filter" class="form-control" value=""
+                                placeholder="*.py (leave blank for all files)">
+                        </div>
+                        <button type="button" onclick="previewGitHub()" class="button">Preview</button>
+                        <button type="button" onclick="downloadFromGitHub()" class="button success">Download</button>
+                    </form>
+                    <div id="github-preview" class="github-preview" style="display:none;"></div>
                 </div>
 
-                <!-- System Management Section -->
                 <div class="section">
-                    <h2>⚙️ System Management</h2>
-
-                    <form method="POST" style="display: inline-block; margin: 5px;">
-                        <input type="hidden" name="action" value="create_backup">
-                        <button type="submit" class="button success">💾 Create Backup</button>
-                    </form>
-
-                    <form method="POST" style="display: inline-block; margin: 5px;">
-                        <input type="hidden" name="action" value="restore_backup">
-                        <button type="submit" class="button warning"
-                            onclick="return confirm('Restore from backup? This will overwrite current files.')">
-                            🔄 Restore Backup
-                        </button>
-                    </form>
-
-                    <form method="POST" style="display: inline-block; margin: 5px;">
-                        <input type="hidden" name="action" value="restart_system">
-                        <button type="submit" class="button danger"
-                            onclick="return confirm('Really restart the system? This will disconnect you temporarily.')">
-                            🔄 Restart System
-                        </button>
-                    </form>
-                </div>
-
-                <!-- System Info Section -->
-                <div class="section">
-                    <h2>ℹ️ System Information</h2>
-                    <div class="system-info">
-                        <div><strong>Vehicle:</strong> {{ vehicle_name }}</div>
-                        <div><strong>Memory:</strong> {{ memory_info }}</div>
-                        <div><strong>Platform:</strong> ESP32-S3 MicroPython</div>
-                        <div><strong>OTA Status:</strong> Ready</div>
-                    </div>
+                    <h2>System Info</h2>
+                    <div id="system-info" class="system-info">Loading...</div>
+                    <button onclick="restartDevice()" class="button warning" style="margin-top: 10px;">Restart
+                        Device</button>
                 </div>
             </div>
+        </div>
+
+        <div class="section">
+            <h2>File Editor</h2>
+            <div style="margin-bottom: 10px;">
+                <input type="text" id="edit-filename" class="form-control" placeholder="Filename (e.g., main.py)"
+                    style="width: 300px; display: inline-block;">
+                <button onclick="loadFile()" class="button">Load</button>
+                <button onclick="saveFile()" class="button success">Save</button>
+            </div>
+            <textarea id="file-content" class="form-control" rows="20"
+                placeholder="File content will appear here..."></textarea>
         </div>
     </div>
 
     <script>
-        // Show status messages based on URL parameters
-        function showStatusMessage() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const statusContainer = document.getElementById('status-messages');
+        let currentFiles = [];
 
-            if (urlParams.has('success')) {
-                const message = urlParams.get('success');
-                const alertDiv = document.createElement('div');
-                alertDiv.className = 'alert success';
-                alertDiv.innerHTML = getSuccessMessage(message);
-                statusContainer.appendChild(alertDiv);
-            }
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshFiles(); loadSystemInfo();
+            document.getElementById('upload-form').addEventListener('submit', handleUpload);
+        });
 
-            if (urlParams.has('error')) {
-                const message = urlParams.get('error');
-                const alertDiv = document.createElement('div');
-                alertDiv.className = 'alert error';
-                alertDiv.innerHTML = getErrorMessage(message);
-                statusContainer.appendChild(alertDiv);
-            }
-        }
-
-        function getSuccessMessage(code) {
-            const messages = {
-                'file_uploaded': '✅ File uploaded successfully!',
-                'file_deleted': '✅ File deleted successfully!',
-                'sync_completed': '✅ GitHub sync completed!',
-                'preview_ready': '✅ Preview ready - check the preview area',
-                'backup_created': '✅ Backup created successfully!',
-                'backup_restored': '✅ System restored from backup!',
-                'settings_saved': '✅ Settings saved successfully!',
-                'restarting': '🔄 System is restarting...'
-            };
-            return messages[code] || '✅ Operation completed successfully!';
-        }
-
-        function getErrorMessage(code) {
-            const messages = {
-                'no_filename': '❌ Please specify a filename',
-                'no_content': '❌ Please provide file content',
-                'upload_failed': '❌ File upload failed',
-                'delete_failed': '❌ File deletion failed',
-                'sync_failed': '❌ GitHub sync failed',
-                'invalid_url': '❌ Invalid GitHub URL format',
-                'backup_failed': '❌ Backup creation failed',
-                'restore_failed': '❌ Backup restore failed'
-            };
-            return messages[code] || '❌ An error occurred: ' + code;
-        }
-
-        function loadFileList() {
-            const loading = document.getElementById('files-loading');
-            const fileList = document.getElementById('file-list');
-
-            loading.style.display = 'block';
-            fileList.innerHTML = '';
-
-            fetch('/ota?action=list_files')
-                .then(response => response.json())
-                .then(data => {
-                    loading.style.display = 'none';
-
-                    if (data.error) {
-                        fileList.innerHTML = `<div style="color: red;">Error: ${data.error}</div>`;
-                        return;
-                    }
-
-                    if (data.files && data.files.length > 0) {
-                        fileList.innerHTML = data.files.map(file => `
-                            <div class="file-item">
-                                <div class="file-info">
-                                    <strong>${file.path}</strong>
-                                    <span class="file-size">${file.size_formatted}</span>
-                                </div>
-                                <div class="file-actions">
-                                    <button class="button" style="padding: 4px 8px; font-size: 11px;" 
-                                            onclick="downloadFile('${file.path}')">📥</button>
-                                    <button class="button danger" style="padding: 4px 8px; font-size: 11px;" 
-                                            onclick="deleteFile('${file.path}')">🗑️</button>
-                                </div>
-                            </div>
-                        `).join('');
-                    } else {
-                        fileList.innerHTML = '<div>No files found</div>';
-                    }
-                })
-                .catch(error => {
-                    loading.style.display = 'none';
-                    fileList.innerHTML = `<div style="color: red;">Error loading files: ${error}</div>`;
-                });
-        }
-
-        function downloadFile(filename) {
-            window.open(`/ota?action=download_file&file=${encodeURIComponent(filename)}`, '_blank');
-        }
-
-        function deleteFile(filename) {
-            if (confirm(`Really delete '${filename}'?`)) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.innerHTML = `
-                    <input type="hidden" name="action" value="delete_file">
-                    <input type="hidden" name="filename" value="${filename}">
-                `;
-                document.body.appendChild(form);
-                form.submit();
+        async function handleUpload(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            showStatus('Uploading...', 'info');
+            try {
+                const response = await fetch('/ota', { method: 'POST', body: formData });
+                const result = await response.json();
+                showStatus(result.message || 'Upload complete', result.success ? 'success' : 'error');
+                if (result.success) refreshFiles();
+            } catch (error) {
+                showStatus('Upload failed: ' + error.message, 'error');
             }
         }
 
-        function previewGitHub() {
-            const githubUrl = document.getElementById('github-url').value;
-            if (!githubUrl) {
-                alert('Please enter a GitHub URL');
+        async function refreshFiles() {
+            try {
+                const response = await fetch('/ota?action=list_files');
+                const result = await response.json();
+                currentFiles = result.files || [];
+                updateFileList();
+            } catch (error) {
+                showStatus('Failed to load files: ' + error.message, 'error');
+            }
+        }
+
+        function updateFileList() {
+            const container = document.getElementById('file-list');
+            if (!currentFiles.length) {
+                container.innerHTML = '<div>No files found</div>';
                 return;
             }
 
-            const container = document.getElementById('github-preview-container');
-            const preview = document.getElementById('github-preview');
-
-            preview.innerHTML = '<div class="spinner"></div>Loading preview...';
-            container.style.display = 'block';
-
-            fetch(`/ota?action=github_preview&url=${encodeURIComponent(githubUrl)}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        preview.innerHTML = `<div style="color: red;">Error: ${data.error}</div>`;
-                        return;
-                    }
-
-                    if (data.files && data.files.length > 0) {
-                        preview.innerHTML = data.files.map(file => `
-                            <div class="github-preview-item">
-                                📄 ${file.path} <span style="color: #7f8c8d;">(${file.size} bytes)</span>
-                            </div>
-                        `).join('');
-                    } else {
-                        preview.innerHTML = '<div>No files found in repository</div>';
-                    }
-                })
-                .catch(error => {
-                    preview.innerHTML = `<div style="color: red;">Error: ${error}</div>`;
-                });
+            container.innerHTML = currentFiles.map(file =>
+                `<div class="file-item">
+                    <span>${file.path} (${file.size} bytes)</span>
+                    <div>
+                        <button onclick="editFile('${file.path}')" class="button" style="padding: 2px 6px; font-size: 10px;">Edit</button>
+                        <button onclick="deleteFile('${file.path}')" class="button danger" style="padding: 2px 6px; font-size: 10px;">Delete</button>
+                    </div>
+                </div>`
+            ).join('');
         }
 
-        function confirmSync() {
-            return confirm('This will download files from GitHub and overwrite existing files. Continue?');
+        async function deleteFile(filename) {
+            if (!confirm(`Delete ${filename}?`)) return;
+            try {
+                const formData = new FormData();
+                formData.append('action', 'delete_file');
+                formData.append('filename', filename);
+                const response = await fetch('/ota', { method: 'POST', body: formData });
+                const result = await response.json();
+                showStatus(result.message || 'File deleted', result.success ? 'success' : 'error');
+                if (result.success) refreshFiles();
+            } catch (error) {
+                showStatus('Delete failed: ' + error.message, 'error');
+            }
         }
 
-        // Form submission loading states
-        document.getElementById('upload-form').addEventListener('submit', function () {
-            document.getElementById('upload-loading').style.display = 'block';
-        });
+        async function deleteAllFiles() {
+            if (!confirm('Delete ALL files?')) return;
+            showStatus('Deleting all files...', 'info');
+            try {
+                const formData = new FormData();
+                formData.append('action', 'delete_all');
+                const response = await fetch('/ota', { method: 'POST', body: formData });
+                const result = await response.json();
+                showStatus(result.message || 'All files deleted', result.success ? 'success' : 'error');
+                refreshFiles();
+            } catch (error) {
+                showStatus('Delete all failed: ' + error.message, 'error');
+            }
+        }
 
-        document.getElementById('github-form').addEventListener('submit', function () {
-            document.getElementById('github-loading').style.display = 'block';
-        });
+        async function previewGitHub() {
+            const form = document.getElementById('github-form');
+            const formData = new FormData(form);
+            formData.set('action', 'github_preview');
 
-        // Initialize page
-        document.addEventListener('DOMContentLoaded', function () {
-            showStatusMessage();
-            loadFileList();
-        });
+            showStatus('Loading preview...', 'info');
+            try {
+                const response = await fetch('/ota', { method: 'POST', body: formData });
+                const result = await response.json();
+
+                if (result.success && result.files) {
+                    const preview = document.getElementById('github-preview');
+                    preview.innerHTML = result.files.map(f => `<div>${f.path} (${f.size} bytes)</div>`).join('');
+                    preview.style.display = 'block';
+                    showStatus(`Found ${result.files.length} files`, 'success');
+                } else {
+                    showStatus(result.message || 'Preview failed', 'error');
+                }
+            } catch (error) {
+                showStatus('Preview failed: ' + error.message, 'error');
+            }
+        }
+
+        async function downloadFromGitHub() {
+            const form = document.getElementById('github-form');
+            const formData = new FormData(form);
+            formData.set('action', 'github_download');
+
+            showStatus('Downloading from GitHub...', 'info');
+            try {
+                const response = await fetch('/ota', { method: 'POST', body: formData });
+                const result = await response.json();
+                showStatus(result.message || 'Download complete', result.success ? 'success' : 'error');
+                if (result.success) refreshFiles();
+            } catch (error) {
+                showStatus('Download failed: ' + error.message, 'error');
+            }
+        }
+
+        function editFile(filename) {
+            document.getElementById('edit-filename').value = filename;
+            loadFile();
+        }
+
+        async function loadFile() {
+            const filename = document.getElementById('edit-filename').value;
+            if (!filename) return;
+
+            try {
+                const response = await fetch(`/ota?action=read_file&filename=${encodeURIComponent(filename)}`);
+                const result = await response.json();
+                if (result.success) {
+                    document.getElementById('file-content').value = result.content;
+                    showStatus(`Loaded ${filename}`, 'success');
+                } else {
+                    showStatus(result.message || 'Load failed', 'error');
+                }
+            } catch (error) {
+                showStatus('Load failed: ' + error.message, 'error');
+            }
+        }
+
+        async function saveFile() {
+            const filename = document.getElementById('edit-filename').value;
+            const content = document.getElementById('file-content').value;
+            if (!filename) return;
+
+            try {
+                const formData = new FormData();
+                formData.append('action', 'save_file');
+                formData.append('filename', filename);
+                formData.append('content', content);
+
+                const response = await fetch('/ota', { method: 'POST', body: formData });
+                const result = await response.json();
+                showStatus(result.message || 'File saved', result.success ? 'success' : 'error');
+                if (result.success) refreshFiles();
+            } catch (error) {
+                showStatus('Save failed: ' + error.message, 'error');
+            }
+        }
+
+        async function loadSystemInfo() {
+            try {
+                const response = await fetch('/ota?action=system_info');
+                const result = await response.json();
+                if (result.success && result.info) {
+                    const info = result.info;
+                    document.getElementById('system-info').innerHTML =
+                        `Free Memory: ${info.free_mem || 'N/A'} bytes<br>` +
+                        `Flash Size: ${info.flash_size || 'N/A'}<br>` +
+                        `Frequency: ${info.freq || 'N/A'} MHz<br>` +
+                        `Temperature: ${info.temp || 'N/A'}°C`;
+                }
+            } catch (error) {
+                console.error('Failed to load system info:', error);
+            }
+        }
+
+        async function restartDevice() {
+            if (!confirm('Restart the device?')) return;
+            showStatus('Restarting device...', 'info');
+            try {
+                const formData = new FormData();
+                formData.append('action', 'restart');
+                await fetch('/ota', { method: 'POST', body: formData });
+                showStatus('Device restarting...', 'success');
+                setTimeout(() => location.reload(), 3000);
+            } catch (error) {
+                showStatus('Restart failed: ' + error.message, 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            const container = document.getElementById('status-messages');
+            const alertClass = type === 'success' ? 'success' : type === 'error' ? 'error' : '';
+            container.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            setTimeout(() => container.innerHTML = '', 5000);
+        }
     </script>
 </body>
 

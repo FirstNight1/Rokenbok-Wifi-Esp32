@@ -68,6 +68,65 @@ def clear_template_cache():
     gc.collect()
 
 
+async def precache_critical_assets():
+    """Pre-load critical static assets to improve page load performance"""
+    global _cache_enabled
+
+    if not _cache_enabled:
+        return
+
+    print("Pre-caching critical assets...")
+
+    # Critical assets in order of size/importance
+    critical_assets = [
+        "play_page.js",  # 17KB - largest, most interactive (optimized from 33KB)
+        "ota_page.html",  # 15KB - second largest (optimized from 21KB)
+        "testing_page.js",  # 10KB - testing functionality
+        "play_page.html",  # 4KB - play page template
+        "play_page.css",  # 3KB - play page styling
+        "admin_page.html",  # 3KB - admin interface
+        "wifi_page.html",  # 4KB - wifi config
+        "home_page.html",  # 3KB - home page
+        "mapping_modal.css",  # 2KB - control mapping styles
+        "header_nav.html",  # 2KB - navigation
+        "testing_page.html",  # 2KB - testing page
+    ]
+
+    # Get base directory for assets
+    base_file = __file__
+    if "/" in base_file:
+        base_dir = base_file.rsplit("/", 1)[0]
+    elif "\\" in base_file:
+        base_dir = base_file.rsplit("\\", 1)[0]
+    else:
+        base_dir = "."
+
+    cached_count = 0
+    total_size = 0
+
+    for asset in critical_assets:
+        fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", asset])
+        content = _load_template(fpath)
+        if content:
+            cached_count += 1
+            total_size += len(content)
+            print(f"  Cached: {asset} ({len(content)} bytes)")
+        else:
+            print(f"  Failed: {asset}")
+
+        # Check memory pressure and yield control
+        if memory_pressure_check and memory_pressure_check():
+            print(
+                f"  Memory pressure detected, stopping pre-cache after {cached_count} assets"
+            )
+            break
+
+        await asyncio.sleep_ms(1)  # Yield to prevent blocking
+
+    print(f"Pre-cache complete: {cached_count} assets, {total_size} bytes total")
+    gc.collect()
+
+
 async def handle_client(reader, writer):
     client_ip = None
     try:
@@ -147,6 +206,16 @@ async def handle_client(reader, writer):
                 await _handle_websocket(reader, writer, headers, path)
                 return
 
+        # --- Favicon request (redirect to assets) ---
+        if path == "/favicon.ico":
+            # Redirect to the actual favicon location
+            writer.write(
+                b"HTTP/1.1 301 Moved Permanently\r\nLocation: /assets/favicon.ico\r\nCache-Control: max-age=86400\r\n\r\n"
+            )
+            await writer.drain()
+            await writer.aclose()
+            return
+
         # --- Static assets (serve files under /assets/) ---
         if path.startswith("/assets/"):
             # map /assets/<name> -> web/pages/assets/<name>
@@ -162,8 +231,24 @@ async def handle_client(reader, writer):
             # join parts into a single posix-style path
             fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", sub.lstrip("/")])
 
-            # Use cached template loading for assets too
-            content = _load_template(fpath)
+            # Check if this is a binary asset type that should not be templated
+            is_binary = (
+                fpath.endswith(".ico")
+                or fpath.endswith(".png")
+                or fpath.endswith(".jpg")
+                or fpath.endswith(".jpeg")
+                or fpath.endswith(".gif")
+                or fpath.endswith(".woff")
+                or fpath.endswith(".woff2")
+                or fpath.endswith(".ttf")
+            )
+
+            # Use cached template loading for text assets only
+            if not is_binary:
+                content = _load_template(fpath)
+            else:
+                content = None
+
             if content:
                 # Determine content type
                 if fpath.endswith(".js"):
@@ -202,6 +287,10 @@ async def handle_client(reader, writer):
                         ctype = "image/png"
                     elif fpath.endswith(".jpg") or fpath.endswith(".jpeg"):
                         ctype = "image/jpeg"
+                    elif fpath.endswith(".ico"):
+                        ctype = "image/x-icon"
+                    elif fpath.endswith(".gif"):
+                        ctype = "image/gif"
                     else:
                         ctype = "application/octet-stream"
                     cache_hdr = "Cache-Control: max-age=300"
@@ -231,7 +320,7 @@ async def handle_client(reader, writer):
                 cfg = load_config()
             except Exception:
                 cfg = {}
-            # Read MCU temperature if possible
+            # Read MCU temperature if possible (quick operation)
             mcu_temp = None
             if esp32 and hasattr(esp32, "mcu_temperature"):
                 try:
@@ -239,16 +328,8 @@ async def handle_client(reader, writer):
                 except Exception:
                     mcu_temp = None
 
-            # Add performance stats
-            perf_stats = {}
-            if perf_monitor:
-                try:
-                    perf_stats = perf_monitor.get_stats()
-                except Exception:
-                    pass
-
-            # Add memory info
-            memory_info = {"free": gc.mem_free(), "allocated": gc.mem_alloc()}
+            # Light memory info only (remove heavy performance monitoring)
+            memory_info = {"free": gc.mem_free()}
 
             resp = {
                 "type": cfg.get("vehicleType", "Unknown"),
@@ -258,7 +339,6 @@ async def handle_client(reader, writer):
                 "battery": None,
                 "mcu_temp": mcu_temp,
                 "project": "RokVehicle",
-                "performance": perf_stats,
                 "memory": memory_info,
             }
             import json
@@ -330,13 +410,35 @@ async def handle_client(reader, writer):
                         cfg = load_config()
                     except Exception:
                         pass
-                    new_cfg, redirect = page.handle_post(body, cfg)
-                    writer.write(
-                        f"HTTP/1.1 303 See Other\r\nLocation: {redirect}\r\n\r\n"
-                    )
-                    await writer.drain()
-                    await writer.aclose()
-                    return
+                    # Support both JSON and redirect responses from handle_post
+                    post_result = page.handle_post(body, cfg)
+                    if isinstance(post_result, tuple) and len(post_result) == 3:
+                        new_cfg, redirect, json_response = post_result
+                        if json_response is not None:
+                            # Send JSON response
+                            writer.write(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+                            )
+                            writer.write(json_response)
+                            await writer.drain()
+                            await writer.aclose()
+                            return
+                        else:
+                            writer.write(
+                                f"HTTP/1.1 303 See Other\r\nLocation: {redirect}\r\n\r\n"
+                            )
+                            await writer.drain()
+                            await writer.aclose()
+                            return
+                    else:
+                        # Legacy: expect (cfg, redirect)
+                        new_cfg, redirect = post_result
+                        writer.write(
+                            f"HTTP/1.1 303 See Other\r\nLocation: {redirect}\r\n\r\n"
+                        )
+                        await writer.drain()
+                        await writer.aclose()
+                        return
                 except Exception as e:
                     print(f"Error handling POST request for {path}: {e}")
                     sys.print_exception(e)
@@ -357,6 +459,9 @@ async def handle_client(reader, writer):
 
 
 async def start_web_server():
+    # Pre-cache critical assets for faster page loads
+    await precache_critical_assets()
+
     server = await asyncio.start_server(handle_client, "0.0.0.0", 80)
     return server
 
