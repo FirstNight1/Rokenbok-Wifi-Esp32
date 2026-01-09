@@ -7,14 +7,15 @@ LED_PIN = 9  # Pin D10 (GPIO9)
 
 
 class LEDStatusManager:
-    def __init__(self):
+    def __init__(self, pin=None):
+        self.led_pin_num = pin if pin is not None else LED_PIN
         try:
             # Use simple digital pin instead of PWM
-            self.led_pin = machine.Pin(LED_PIN, machine.Pin.OUT)
+            self.led_pin = machine.Pin(self.led_pin_num, machine.Pin.OUT)
             self.led_pin.off()
             self.led_available = True
         except Exception as e:
-            print(f"LED initialization failed: {e}")
+            print(f"LED initialization failed on pin {self.led_pin_num}: {e}")
             self.led_available = False
             self.led_pin = None
 
@@ -25,6 +26,32 @@ class LEDStatusManager:
         self.blink_timer = None
         self.blink_state = False
         self.ap_start_time = None
+
+    def deinit(self):
+        """Deinitialize the LED pin and timer"""
+        try:
+            if self.blink_timer is not None:
+                self.blink_timer.deinit()
+                self.blink_timer = None
+            if self.led_pin is not None:
+                self.led_pin.off()
+                self.led_pin = None
+            self.led_available = False
+        except Exception as e:
+            print(f"LED deinit error: {e}")
+
+    def reinit_with_pin(self, new_pin):
+        """Reinitialize LED with a new pin number"""
+        try:
+            self.led_pin_num = new_pin
+            self.led_pin = machine.Pin(new_pin, machine.Pin.OUT)
+            self.led_pin.off()
+            self.led_available = True
+            print(f"LED reinitialized on pin {new_pin}")
+        except Exception as e:
+            print(f"LED reinit failed on pin {new_pin}: {e}")
+            self.led_available = False
+            self.led_pin = None
 
     def startup_blink(self):
         """Start continuous blinking LED on startup - call from main on initial startup"""
@@ -174,11 +201,11 @@ class LEDStatusManager:
 _led_manager = None
 
 
-def init_led_status():
+def init_led_status(pin=None):
     """Initialize LED status management"""
     global _led_manager
     if _led_manager is None:
-        _led_manager = LEDStatusManager()
+        _led_manager = LEDStatusManager(pin)
     return _led_manager
 
 

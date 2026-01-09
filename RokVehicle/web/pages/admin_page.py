@@ -15,6 +15,42 @@ def handle_post(body, cfg):
     if "cancel" in fields:
         return cfg, "/admin"
 
+    # ---- HANDLE LED SETTINGS ----
+    led_enabled = "ledEnabled" in fields
+    led_pin = fields.get("ledPin", "9")
+
+    # Validate LED pin
+    try:
+        led_pin_num = int(led_pin)
+        if led_pin_num not in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 43, 44]:
+            led_pin_num = 9  # Default fallback
+    except:
+        led_pin_num = 9
+
+    # Update LED config
+    cfg["ledEnabled"] = led_enabled
+    cfg["ledPin"] = led_pin_num
+
+    # Apply LED settings if changed
+    from control.led_status import get_led_manager, init_led_status, set_wifi_status
+
+    led_manager = get_led_manager()
+    if led_manager:
+        # Check if pin changed
+        old_pin = getattr(led_manager, "led_pin_num", 9)
+        if old_pin != led_pin_num:
+            # Reinitialize LED with new pin
+            led_manager.deinit()
+            led_manager.led_pin_num = led_pin_num
+            led_manager.reinit_with_pin(led_pin_num)
+
+        # Set override based on enabled state
+        if not led_enabled:
+            led_manager.set_override(True, False)  # Force off
+        else:
+            led_manager.set_override(False)  # Auto mode
+            set_wifi_status()  # Update to current WiFi status
+
     # ---- VALIDATE VEHICLE TYPE ----
     new_type = fields.get("vehicleType", cfg.get("vehicleType"))
     if new_type not in valid_types:
@@ -70,6 +106,27 @@ def _valid_vehicle_types():
     return {t["typeName"] for t in VEHICLE_TYPES}
 
 
+def _get_used_motor_pins(cfg):
+    """Get a set of pins currently used by motors"""
+    used_pins = set()
+    try:
+        # Import motor pin map and controller
+        from control.motor_controller import MOTOR_PIN_MAP, motor_controller
+
+        # Get current motor assignments
+        motor_info = motor_controller.get_motor_assignments()
+        # Collect pins from all assigned motors
+        for motor_name, info in motor_info.items():
+            pins = info.get("pins", (None, None))
+            if pins[0] is not None:
+                used_pins.add(pins[0])
+            if pins[1] is not None:
+                used_pins.add(pins[1])
+    except Exception as e:
+        print(f"Error getting used motor pins: {e}")
+    return used_pins
+
+
 # ---------------------------------------------------------
 # HTML Builder
 # ---------------------------------------------------------
@@ -92,6 +149,41 @@ def build_admin_page(cfg):
         {t["typeName"]: t["tagName"] for t in VEHICLE_TYPES}, separators=(",", ":")
     )
 
+    # Get current LED settings
+    led_enabled = cfg.get("ledEnabled", True)
+    led_pin = cfg.get("ledPin", 9)
+
+    # Get motor pin usage to grey out occupied pins
+    used_pins = _get_used_motor_pins(cfg)
+
+    # Build LED pin dropdown
+    # Use D0-D10, D6, D7 labels for pins 1-10, 43, 44, in requested order
+    pin_labels = {
+        1: "D0",
+        2: "D1",
+        3: "D2",
+        4: "D3",
+        5: "D4",
+        6: "D5",
+        43: "D6",
+        44: "D7",
+        7: "D8",
+        8: "D9",
+        9: "D10",
+        10: "D11",
+    }
+    available_pins = [1, 2, 3, 4, 5, 6, 43, 44, 7, 8, 9, 10]
+    led_pin_options = ""
+    for pin in available_pins:
+        disabled = "disabled" if pin in used_pins else ""
+        selected = "selected" if pin == led_pin else ""
+        label = pin_labels.get(pin, f"D{pin}") + (
+            " (Motor Used)" if pin in used_pins else ""
+        )
+        led_pin_options += (
+            f"<option value='{pin}' {selected} {disabled}>{label}</option>"
+        )
+
     vehicle_tag = cfg.get("vehicleTag") or ""
     vehicle_name = (
         cfg.get("vehicleName") or ""
@@ -112,11 +204,15 @@ def build_admin_page(cfg):
             html = html.replace(
                 "{{ header_nav }}", header_nav.strip().replace("\n", "")
             )
-            html = html.replace("{{ type_options }}", type_options.strip())
+            html = html.replace("{{ type_option }}", type_options.strip())
             html = html.replace("{{ vehicle_tag }}", vehicle_tag.strip())
             html = html.replace("{{ vehicle_name }}", vehicle_name.strip())
             html = html.replace("{{vehicle_type_map}}", vehicle_type_map.strip())
             html = html.replace("{{ led_status }}", "")  # Remove LED status display
+            html = html.replace(
+                "{{ led_enabled_checked }}", "checked" if led_enabled else ""
+            )
+            html = html.replace("{{ led_pin_options }}", led_pin_options.strip())
         else:
             html = (
                 f"<html><body><h2>Error loading admin page template</h2></body></html>"

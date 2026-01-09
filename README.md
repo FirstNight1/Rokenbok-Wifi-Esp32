@@ -9,10 +9,10 @@ This project has not yet been released as an official version, and is entirely a
 There are several conversion options with steps contained in the VehicleInfo folder.  This gives a brief overview of the various conversion options.
 - Power Conversion: Adds a boost regulator to step up the input voltage to 5V
   - Allows using NiMh rechargeable batteries or similar while providing alkaline-like performance of the vehicle
-  - Cost: $5-$10
+  - Cost: $10-$15
   - Time: 15 minutes
   - Skill: Basic soldering
-  - Compatibility: Compatible with Control conversion, and FPV conversion. NOT compatible with LiPo Power conversion.
+  - Compatibility: Compatible with Control conversion, and FPV conversion. NOT compatible with LiPo Power conversion.  Also compatible with stock control setup. 
   - Reversibility: Easily reversible to return to stock setup
 - Control Conversion: Replaces the stock control board with a revised wifi-connected control setup
   - Allows for Wifi-based control of vehicle using a gamepad.  Hardware includes a controller, motor drivers, and supporting bits.

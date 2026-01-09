@@ -13,8 +13,19 @@ import networking.udp_listener
 cfg = load_config()
 
 # Initialize LED and do startup blink
-init_led_status()
-startup_blink()
+led_pin = cfg.get("ledPin", 9)
+led_enabled = cfg.get("ledEnabled", True)
+init_led_status(led_pin)
+
+if led_enabled:
+    startup_blink()
+else:
+    # If LED disabled, set override to keep it off
+    from control.led_status import get_led_manager
+
+    led_manager = get_led_manager()
+    if led_manager:
+        led_manager.set_override(True, False)
 
 # Try STA mode first if configured
 wlan = connect_to_wifi()
@@ -27,7 +38,8 @@ else:
     print("Connected in STA mode.")
 
 # Set LED pattern based on WiFi status and exit
-set_wifi_status()
+if led_enabled:
+    set_wifi_status()
 
 # ---- Start async web server (non-blocking) ----
 import _thread

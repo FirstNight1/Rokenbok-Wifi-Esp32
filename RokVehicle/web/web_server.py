@@ -386,7 +386,10 @@ async def handle_client(reader, writer):
                     del html, html_bytes
                     gc.collect()
                     return
-                except Exception as e:
+                except OSError as e:
+                    if getattr(e, "errno", None) == 104:
+                        print(f"ECONNRESET: Client disconnected early for {path}")
+                        return
                     print(f"Error handling GET request for {path}: {e}")
                     sys.print_exception(e)
                     error_html = f"<html><body><h2>Page Error</h2><p>Error loading {path}: {e}</p><p><a href='/'>Return to Home</a></p></body></html>"

@@ -16,12 +16,31 @@
 
         <form method="POST" action="/admin">
             <label>Vehicle Type:</label><br>
-            <select name="vehicleType" id="vehicleType" onchange="updateVehicleTag()">{{ type_options
-                }}</select><br><br>
+            <select name="vehicleType" id="vehicleType" onchange="updateVehicleTag()">{{ type_option }}</select><br><br>
             <label>Vehicle Tag:</label><br>
             <input name="vehicleTag" id="vehicleTag" value="{{ vehicle_tag }}"><br><br>
             <label>Vehicle Name:</label><br>
             <input name="vehicleName" value="{{ vehicle_name }}"><br><br>
+
+            <div
+                style="border: 1px solid #ccc; padding: 15px; margin: 15px 0; border-radius: 5px; background: #f9f9f9;">
+                <h3 style="margin-top: 0; color: #333;">LED Configuration</h3>
+                <label>
+                    <input type="checkbox" name="ledEnabled" id="ledEnabled" {{ led_enabled_checked }}>
+                    Enable LED Status Indicator
+                </label><br><br>
+
+                <label>LED Pin:</label><br>
+                <select name="ledPin" id="ledPin" style="margin-bottom: 10px;">
+                    {{ led_pin_options }}
+                </select><br>
+
+                <div style="color: #666; font-size: 0.9em; margin-top: 5px;">
+                    <em>Note: Grayed out pins are currently used by motors.
+                        Update motor pin configuration on the Motor Config page to free up pins.</em>
+                </div>
+            </div>
+
             <button type="submit" name="save" value="1">Save</button>
             <button type="submit" name="cancel" value="1">Cancel</button>
         </form>
@@ -32,35 +51,29 @@
         // Vehicle type mapping (typeName -> tagName)
         const vehicleTypeMap = JSON.parse('{{ vehicle_type_map }}');
 
-        const originalTag = "{{ vehicle_tag }}";
-
         function updateVehicleTag() {
             const typeSelect = document.getElementById('vehicleType');
             const tagInput = document.getElementById('vehicleTag');
             const selectedType = typeSelect.value;
-
-            // Find the tag prefix for the selected type
             const newTagName = vehicleTypeMap[selectedType] || selectedType;
 
-            // Extract the current suffix from the original tag
+            // Use the current tag value, not just the original
+            const currentTag = tagInput.value;
             let suffix = "";
+            let matchedPrefix = null;
             for (const [typeName, tagName] of Object.entries(vehicleTypeMap)) {
-                if (originalTag.startsWith(tagName + "-")) {
-                    suffix = originalTag.substring(tagName.length + 1);
+                if (currentTag.startsWith(tagName + "-")) {
+                    suffix = currentTag.substring(tagName.length + 1);
+                    matchedPrefix = tagName;
                     break;
                 }
             }
 
-            // If no suffix found, use the original tag as suffix if it doesn't contain a dash
-            if (!suffix && !originalTag.includes("-")) {
-                suffix = originalTag;
-            } else if (!suffix && originalTag.includes("-")) {
-                // Use everything after the first dash
-                suffix = originalTag.substring(originalTag.indexOf("-") + 1);
+            // Only update if the tag matches the previous type prefix
+            if (matchedPrefix) {
+                tagInput.value = suffix ? newTagName + "-" + suffix : newTagName;
             }
-
-            // Update the tag input
-            tagInput.value = suffix ? newTagName + "-" + suffix : newTagName;
+            // If no match, do not auto-update (user has manually edited)
         }
     </script>
 </body>

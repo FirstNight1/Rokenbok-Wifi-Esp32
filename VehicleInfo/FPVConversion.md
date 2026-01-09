@@ -2,6 +2,8 @@
 ## Vehicle Hardware Conversion - FPV Camera
 This conversion is mostly reversible, as other than running a few wires and maybe drilling a few holes, it doesn't impact the existing control board setup.  You will need basic soldering skills, and a willingness to take your vehicle apart, including potentially damaging it irreparably.  
 
+Drill size for camera: 9/32 for just round part of camera, 7/16 to fit square.
+
 1. The Vehicle Info folder contains information and pictures of the vehicles modified so far, more pictures and information will be added as we convert more vehicles.  This information may also be useful for repairs to the vehicle.
 
 Parts used:

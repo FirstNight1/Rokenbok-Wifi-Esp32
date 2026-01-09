@@ -212,19 +212,54 @@ def handle_github_preview_post(fields, cfg):
         if not repo:
             return ujson.dumps({"success": False, "message": "Repository required"})
 
-        # Use OTA utils to preview GitHub files
-        success, result = ota.preview_github_files(repo, ref, folder, path_filter)
+        # Only allow preview if in STA mode (internet access)
+        try:
+            import network
+
+            sta = network.WLAN(network.STA_IF)
+            if not sta.active() or not sta.isconnected():
+                return ujson.dumps(
+                    {
+                        "success": False,
+                        "message": "Preview only available in STA mode with internet access.",
+                    }
+                )
+        except Exception:
+            return ujson.dumps(
+                {
+                    "success": False,
+                    "message": "Preview only available in STA mode (network module not available).",
+                }
+            )
+
+        # Use get_github_file_list for preview
+        if not hasattr(ota, "get_github_file_list"):
+            return ujson.dumps(
+                {
+                    "success": False,
+                    "message": "OTA preview not supported in this firmware.",
+                }
+            )
+
+        success, files = ota.get_github_file_list(repo, ref, folder)
 
         if success:
+            # Optionally filter files by path_filter (simple substring match)
+            if path_filter:
+                filtered = []
+                for f in files:
+                    if path_filter in f["path"]:
+                        filtered.append(f)
+                files = filtered
             return ujson.dumps(
                 {
                     "success": True,
-                    "files": result,
-                    "message": f"Found {len(result)} files",
+                    "files": files,
+                    "message": f"Found {len(files)} files",
                 }
             )
         else:
-            return ujson.dumps({"success": False, "message": result})
+            return ujson.dumps({"success": False, "message": files})
 
     except Exception as e:
         return ujson.dumps({"success": False, "message": f"Preview error: {e}"})

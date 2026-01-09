@@ -1,5 +1,8 @@
 # Rokenbok Vehicle General Information
 
+## Hardware
+Most vehicles use M3 coarse thread socket cap screws in various lengths to hold the vehicle together.  Screw lengths are posted on each vehicle's teardown to assist with disassembly and reassembly.
+
 ## Motors
 Most vehicles use R260 brushed motors.
 38mm long (tail to tip of shaft)

@@ -14,6 +14,14 @@ It is always suggested to remove the batteries from any unit being disassembled.
 1. Remove 2 screws securing the grey drive base at the back of the vehicle.
 2. Lift the back of the gray drive base and slide the front out of it's indents, and the top of the drive base can be accessed.
 
+### Disassembling the Drive Base
+
+### Disassembling the Body
+
+### Disassembling FUNCTION
+
+### Disassembling the Trailer Hitch
+
 ## Electronics
 ### Motors
 The VEHICLE contains X motors. They are:

@@ -12,9 +12,9 @@
             "problemMatcher": []
         },
         {
-            "label": "Upload all files",
-            "type": "shell",
-            "command": "python -m mpremote connect COM10 cp -r . :/; python -m mpremote reset",
+            "label": "Upload RokVehicle files",
+            "type": "shell", 
+            "command": "python -m mpremote connect COM17 cp -r . :/; python -m mpremote reset",
             "options": {
                 "cwd": "${workspaceFolder}/RokVehicle"
             },
@@ -22,7 +22,7 @@
             "problemMatcher": []
         },
         {
-            "label": "Upload RokVision files",
+            "label": "Upload FPV files",
             "type": "shell",
             "command": "python -m mpremote connect COM14 cp -r . :/; python -m mpremote connect COM14 reset",
             "options": {
@@ -34,7 +34,7 @@
         {
             "label": "Open REPL",
             "type": "shell",
-            "command": "python -m mpremote connect COM10 repl",
+            "command": "python -m mpremote connect COM17 repl",
             "group": "build",
             "problemMatcher": []
         },
@@ -46,9 +46,16 @@
             "problemMatcher": []
         },
         {
-            "label": "Erase Flash and reflash firmware",
+            "label": "Erase Flash and reflash RokVehicle firmware",
             "type": "shell",
-            "command": "python -m esptool --port COM13 erase_flash; sleep 10; python -m esptool --chip esp32s3 --port COM13 write_flash -z 0x0 'c:\\Users\\Tim Ehrlich\\Downloads\\firmware.bin'",
+            "command": "python -m esptool --port COM16 erase_flash; sleep 10; python -m esptool --chip esp32s3 --port COM16 write_flash -z 0x0 'c:\\Users\\Tim Ehrlich\\Downloads\\ESP32_GENERIC_S3-SPIRAM_OCT-20251209-v1.27.0.bin'",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Erase Flash and reflash FPV firmware",
+            "type": "shell",
+            "command": "python -m esptool --port COM16 erase_flash; sleep 10; python -m esptool --chip esp32s3 --port COM16 write_flash -z 0x0 'c:\\Users\\Tim Ehrlich\\Downloads\\FPVfirmware.bin'",
             "group": "build",
             "problemMatcher": []
         },
