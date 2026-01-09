@@ -1,0 +1,1 @@
+# Shared variables and configuration

@@ -1,9 +1,11 @@
+<!DOCTYPE html>
 <html>
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rokenbok Vehicle Control</title>
+    <title>{{ vehicle_name }} - Home</title>
+    <link rel="icon" href="/assets/favicon.ico">
 </head>
 
 <body>
@@ -12,20 +14,22 @@
         <p><b>Vehicle Name:</b> <span id='vehicle_name'>Loading...</span></p>
         <p><b>Vehicle Type:</b> <span id='vehicle_type'>Loading...</span></p>
         <p><b>Vehicle Tag:</b> <span id='vehicle_tag'>Loading...</span></p>
-        <p><b>Busy Status:</b> <span id='vehicle_busy'>Loading...</span></p>
+        <p><b>Status:</b> <span id='vehicle_status'>Loading...</span></p>
         <p><b>Battery Level:</b> <span id='vehicle_battery'>N/A</span></p>
         <p><b>MCU Temp:</b> <span id='mcu_temp'>N/A</span> &deg;C</p>
         <p><b>Memory:</b> <span id='memory_info'>{{ memory_info }}</span></p>
         <p><b>IP Address:</b> {{ ip }}</p>
-        <button class='play-now-btn' onclick="window.location='/play'">Play Now</button>
     </div>
     <script>
         // Single status fetch - no auto-refresh
-        fetch('/status').then(r => r.json()).then(js => {
+        fetch('/api/status').then(r => r.json()).then(js => {
             document.getElementById('vehicle_name').textContent = js.vehicleName || 'Unnamed Vehicle';
             document.getElementById('vehicle_type').textContent = js.type || 'Unknown';
             document.getElementById('vehicle_tag').textContent = js.tag || 'N/A';
-            document.getElementById('vehicle_busy').textContent = js.busy ? 'In Use' : 'Available';
+
+            // Project type determines if busy status is available
+            { { busy_status_script } }
+
             document.getElementById('vehicle_battery').textContent = js.battery !== undefined && js.battery !== null ? js.battery : 'N/A';
             document.getElementById('mcu_temp').textContent = (js.mcu_temp !== undefined && js.mcu_temp !== null) ? js.mcu_temp.toFixed(1) : 'N/A';
             if (js.memory) {
@@ -37,6 +41,8 @@
         }).catch(e => {
             console.log('Status fetch failed:', e);
             // Keep static values if fetch fails
+            document.getElementById('vehicle_status').textContent = 'Vehicle is ready';
+            document.getElementById('vehicle_status').style.color = '#28a745';
         });
     </script>
 </body>

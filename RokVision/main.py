@@ -4,24 +4,20 @@ time.sleep(2)  # allow USB enumeration before WiFi touches peripherals
 
 
 import web.web_server
-from variables.vars_store import load_config
-from networking.wifi_manager import connect_to_wifi, start_ap_mode
+from RokCommon.variables.vars_store import init_config
+from RokCommon.networking.wifi_manager import connect_to_wifi
 
 import sys
 
 if "/" not in sys.path:
     sys.path.append("/")
-cfg = load_config()
 
-# Try STA mode first if configured
+# Connect to Wifi
 wlan = connect_to_wifi()
 
-# If failed, go AP mode
-if not wlan or not wlan.isconnected():
-    print("Starting AP mode...")
-    start_ap_mode(cfg.get("vehicleTag", "RokVision"))
-else:
-    print("Connected in STA mode.")
+# Validation configuration and create/load defaults if needed
+cfg = init_config()
+
 
 # ---- Run both web server and camera stream in single asyncio event loop ----
 import uasyncio as asyncio

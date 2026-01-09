@@ -1,7 +1,7 @@
 # pages/testing_page.py
 
-from variables.vars_store import load_config, save_config
-from variables.vehicle_types import VEHICLE_TYPES
+from RokCommon.variables.vars_store import get_config_value
+from RokCommon.variables.vehicle_types import VEHICLE_TYPES
 import json
 
 
@@ -11,11 +11,10 @@ import json
 
 
 def get_vehicle_info():
-    cfg = load_config()
-    vtype = cfg.get("vehicleType")
-
+    vtype = get_config_value("vehicleType")
+    vehicle_name = get_config_value("vehicleName")
     info = next((v for v in VEHICLE_TYPES if v["typeName"] == vtype), None)
-    return cfg, vtype, info
+    return vtype, vehicle_name, info
 
 
 # ---------------------------------------------------------
@@ -24,16 +23,16 @@ def get_vehicle_info():
 
 
 def handle_get():
-    cfg, vtype, info = get_vehicle_info()
-    vehicle_name = cfg.get("vehicleName") or ""
+    vtype, vehicle_name, info = get_vehicle_info()
+    vehicle_name = vehicle_name or ""
 
     # Build motor list from vehicle type
     motor_names = []
     if info:
         motor_names.extend(info.get("axis_motors", []))
         motor_names.extend(info.get("motor_functions", []))
-    motor_min_cfg = cfg.get("motor_min", {})
-    motor_reversed_cfg = cfg.get("motor_reversed", {})
+    motor_min_cfg = get_config_value("motor_min") or {}
+    motor_reversed_cfg = get_config_value("motor_reversed") or {}
     motor_html = ""
     # Determine which motors are axis and which are function
     axis_motors = set(info.get("axis_motors", [])) if info else set()
@@ -162,32 +161,28 @@ def handle_post(body, cfg):
         except Exception:
             minv = 40000
         # Directly update config
-        cfg = load_config()
-        mm = cfg.get("motor_min", {})
+        from RokCommon.variables.vars_store import update_config_value
+        mm = get_config_value("motor_min") or {}
         if not isinstance(mm, dict):
             mm = {}
         mm[name] = minv
-        cfg["motor_min"] = mm
-        save_config(cfg)
+        update_config_value("motor_min", mm)
         updated = True
     elif action == "toggle_reversed":
         name = fields.get("name")
         # Toggle the current value
-        cfg = load_config()
-        mr = cfg.get("motor_reversed", {})
+        from RokCommon.variables.vars_store import update_config_value
+        mr = get_config_value("motor_reversed") or {}
         if not isinstance(mr, dict):
             mr = {}
         current = bool(mr.get(name, False))
         new_val = not current
         mr[name] = new_val
-        cfg["motor_reversed"] = mr
-        save_config(cfg)
+        update_config_value("motor_reversed", mr)
         updated = True
     # Reload config to reflect changes
     if updated:
-        cfg = load_config()
         # Re-instantiate motor_controller to pick up new config
         import control.motor_controller as mc_mod
-
         mc_mod.motor_controller = mc_mod.MotorController()
-    return (cfg, "/testing")
+    return (None, "/testing")

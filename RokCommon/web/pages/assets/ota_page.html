@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ project_name }} OTA Updates</title>
+    <link rel="icon" href="/assets/favicon.ico">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .section {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+
+        .section h2 {
+            color: #333;
+            margin: 0 0 15px 0;
+            border-bottom: 2px solid #007cba;
+            padding-bottom: 10px;
+        }
+
+        .button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            margin: 5px;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+
+        .button:hover {
+            background: #005a87;
+        }
+
+        .button.success {
+            background: #28a745;
+        }
+
+        .button.success:hover {
+            background: #218838;
+        }
+
+        .button.warning {
+            background: #ffc107;
+            color: black;
+        }
+
+        .button.warning:hover {
+            background: #e0a800;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-family: inherit;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .alert {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .alert.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .progress {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-bar {
+            background: #007cba;
+            color: white;
+            text-align: center;
+            padding: 8px;
+            transition: width 0.3s ease;
+        }
+
+        .form-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .text-muted {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+
+        .backup-info {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+
+        .backup-info h4 {
+            margin: 0 0 10px 0;
+            color: #495057;
+        }
+
+        .backup-item {
+            padding: 5px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .backup-item:last-child {
+            border-bottom: none;
+        }
+
+        #status {
+            min-height: 50px;
+        }
+
+        .warning-text {
+            color: #856404;
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+
+            {
+                {
+                ota_specific_styles
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="section">
+            <h2>🔧 {{ project_name }} Over-The-Air Updates</h2>
+            <div id="status"></div>
+        </div>
+
+        <!-- File Upload Section -->
+        <div class="section">
+            <h2>📂 Upload Files</h2>
+            <p class="text-muted">
+                Upload complete {{ project_name }} folders or download latest updates from GitHub
+            </p>
+
+            <form id="upload-form" enctype="multipart/form-data">
+                <div class="form-group">
+                    <div class="warning-text">
+                        <strong>⚠️ Warning:</strong>
+                        {{ project_upload_warning }}
+                    </div>
+                    <div class="form-group">
+                        <label>📂 Select {{ project_folder_label }}:</label>
+                        <input type="file" name="files" class="form-control" webkitdirectory directory multiple required
+                            accept=".py,.txt,.html,.css,.js,.json,.md">
+                    </div>
+                    <button type="button" onclick="uploadFiles()" class="button success">⬆️ Upload Files</button>
+                    <button type="button" onclick="restartDevice()" class="button warning">🔄 Restart Device</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- GitHub Download Section -->
+        <div class="section">
+            <h2>⬇️ Download from GitHub</h2>
+            <p class="text-muted">
+                {{ github_download_description }}
+            </p>
+
+            <form id="github-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>📦 Repository:</label>
+                        <input type="text" name="repo" class="form-control" value="FirstNight1/Rokenbok-Wifi-Esp32"
+                            placeholder="username/repository">
+                    </div>
+                    <div class="form-group">
+                        <label>🌿 Branch:</label>
+                        <input type="text" name="ref" class="form-control" value="main" placeholder="main">
+                    </div>
+                </div>
+
+                {{ github_folder_selection }}
+
+                <div class="form-group">
+                    <label>🔍 Path Filter (Optional):</label>
+                    <input type="text" name="path_filter" class="form-control" value=""
+                        placeholder="*.py (optional filter)">
+                </div>
+
+                <div style="margin-top: 15px;">
+                    {{ github_download_buttons }}
+                </div>
+            </form>
+        </div>
+
+        <!-- Progress Section -->
+        <div class="section" id="progress-section" style="display: none;">
+            <h2>📊 Progress</h2>
+            <div class="progress">
+                <div class="progress-bar" id="progress-bar" style="width: 0%">0%</div>
+            </div>
+            <div id="progress-details"></div>
+        </div>
+
+        <!-- Backup Management -->
+        <div class="section">
+            <h2>💾 Backup Management</h2>
+            <p class="text-muted">Manage automatic backups created during updates</p>
+
+            <div class="backup-info">
+                <h4>Automatic Backup Settings</h4>
+                <p><strong>Status:</strong> <span id="backup-status">Loading...</span></p>
+                <p><strong>Last Backup:</strong> <span id="last-backup">Loading...</span></p>
+                <p><strong>Total Backups:</strong> <span id="backup-count">Loading...</span></p>
+            </div>
+
+            <div style="margin-top: 15px;">
+                <button type="button" onclick="toggleAutoBackup()" class="button" id="backup-toggle-btn">
+                    Toggle Auto Backup
+                </button>
+                <button type="button" onclick="createManualBackup()" class="button success">
+                    📁 Create Manual Backup
+                </button>
+                <button type="button" onclick="listBackups()" class="button">
+                    📋 List All Backups
+                </button>
+                <button type="button" onclick="clearOldBackups()" class="button warning">
+                    🗑️ Clear Old Backups
+                </button>
+            </div>
+
+            <div id="backup-list" style="margin-top: 15px;"></div>
+        </div>
+
+        <!-- System Information -->
+        <div class="section">
+            <h2>ℹ️ System Information</h2>
+            <div id="system-info">
+                <p><strong>Device:</strong> <span id="device-name">Loading...</span></p>
+                <p><strong>Free Memory:</strong> <span id="free-memory">Loading...</span></p>
+                <p><strong>Flash Size:</strong> <span id="flash-size">Loading...</span></p>
+                <p><strong>Uptime:</strong> <span id="uptime">Loading...</span></p>
+                <p><strong>Last Update:</strong> <span id="last-update">Loading...</span></p>
+            </div>
+            <button type="button" onclick="refreshSystemInfo()" class="button">🔄 Refresh Info</button>
+        </div>
+    </div>
+
+    <script>
+        function showStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.className = `alert ${type}`;
+            status.textContent = message;
+            console.log(`Status (${type}): ${message}`);
+        }
+
+        function showProgress(percent, details = '') {
+            const section = document.getElementById('progress-section');
+            const bar = document.getElementById('progress-bar');
+            const detailsEl = document.getElementById('progress-details');
+
+            section.style.display = 'block';
+            bar.style.width = percent + '%';
+            bar.textContent = Math.round(percent) + '%';
+            detailsEl.textContent = details;
+        }
+
+        function hideProgress() {
+            document.getElementById('progress-section').style.display = 'none';
+        }
+
+        async function uploadFiles() {
+            const form = document.getElementById('upload-form');
+            const formData = new FormData();
+            const files = form.querySelector('[name="files"]').files;
+
+            if (files.length === 0) {
+                showStatus('Please select files to upload', 'error');
+                return;
+            }
+
+            showStatus('Starting file upload...', 'info');
+            showProgress(0, 'Preparing files...');
+
+            formData.set('action', 'upload');
+            for (let i = 0; i < files.length; i++) {
+                formData.append('files', files[i]);
+            }
+
+            try {
+                const response = await fetch('/ota', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+
+                hideProgress();
+
+                if (result.success) {
+                    showStatus(
+                        result.message || `Upload complete: ${files.length} files processed`,
+                        'success'
+                    );
+                    refreshSystemInfo();
+                } else {
+                    showStatus(result.message || 'Upload failed', 'error');
+                }
+            } catch (error) {
+                hideProgress();
+                showStatus(`Upload error: ${error.message}`, 'error');
+            }
+        }
+
+        async function downloadFromGitHub() {
+            const form = document.getElementById('github-form');
+            const formData = new FormData(form);
+            formData.set('action', 'github_download');
+
+            showStatus('Downloading from GitHub...', 'info');
+            showProgress(0, 'Connecting to GitHub...');
+
+            try {
+                const response = await fetch('/ota', { method: 'POST', body: formData });
+                const result = await response.json();
+
+                hideProgress();
+
+                if (result.success) {
+                    showStatus(
+                        result.message || 'Download and update complete',
+                        'success'
+                    );
+                    refreshSystemInfo();
+                } else {
+                    showStatus(result.message || 'Download failed', 'error');
+                }
+            } catch (error) {
+                hideProgress();
+                showStatus(`GitHub download error: ${error.message}`, 'error');
+            }
+        }
+
+        { { ota_specific_javascript } }
+
+        async function restartDevice() {
+            if (!confirm('Restart the device? Any unsaved changes will be lost.')) {
+                return;
+            }
+
+            showStatus('Restarting device...', 'info');
+
+            try {
+                const response = await fetch('/api/restart', { method: 'POST' });
+                showStatus('Device restart initiated. Please wait...', 'success');
+
+                setTimeout(() => {
+                    showStatus('Device should be restarting now. Please refresh the page in a few moments.', 'info');
+                }, 2000);
+            } catch (error) {
+                showStatus('Restart request sent (may not receive response due to restart)', 'info');
+            }
+        }
+
+        async function toggleAutoBackup() {
+            try {
+                const response = await fetch('/ota', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'action=toggle_backup'
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message, 'success');
+                    loadBackupInfo();
+                } else {
+                    showStatus(result.message || 'Failed to toggle backup setting', 'error');
+                }
+            } catch (error) {
+                showStatus(`Backup toggle error: ${error.message}`, 'error');
+            }
+        }
+
+        async function createManualBackup() {
+            showStatus('Creating manual backup...', 'info');
+
+            try {
+                const response = await fetch('/ota', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'action=create_backup'
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message || 'Backup created successfully', 'success');
+                    loadBackupInfo();
+                } else {
+                    showStatus(result.message || 'Failed to create backup', 'error');
+                }
+            } catch (error) {
+                showStatus(`Manual backup error: ${error.message}`, 'error');
+            }
+        }
+
+        async function listBackups() {
+            try {
+                const response = await fetch('/ota', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'action=list_backups'
+                });
+                const result = await response.json();
+
+                const backupList = document.getElementById('backup-list');
+
+                if (result.success && result.backups) {
+                    let html = '<div class="backup-info"><h4>Available Backups</h4>';
+                    if (result.backups.length === 0) {
+                        html += '<p>No backups found</p>';
+                    } else {
+                        result.backups.forEach(backup => {
+                            html += `
+                                <div class="backup-item">
+                                    <strong>${backup.name}</strong> - ${backup.date}
+                                    <button onclick="restoreBackup('${backup.name}')" class="button" style="float: right; padding: 5px 10px;">Restore</button>
+                                    <button onclick="deleteBackup('${backup.name}')" class="button warning" style="float: right; padding: 5px 10px; margin-right: 5px;">Delete</button>
+                                </div>
+                            `;
+                        });
+                    }
+                    html += '</div>';
+                    backupList.innerHTML = html;
+                } else {
+                    showStatus(result.message || 'Failed to list backups', 'error');
+                }
+            } catch (error) {
+                showStatus(`Backup list error: ${error.message}`, 'error');
+            }
+        }
+
+        async function restoreBackup(backupName) {
+            if (!confirm(`Restore backup "${backupName}"? This will overwrite current files.`)) {
+                return;
+            }
+
+            showStatus(`Restoring backup: ${backupName}...`, 'info');
+
+            try {
+                const response = await fetch('/ota', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `action=restore_backup&backup_name=${encodeURIComponent(backupName)}`
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message || 'Backup restored successfully', 'success');
+                    setTimeout(() => {
+                        if (confirm('Backup restored. Restart device to apply changes?')) {
+                            restartDevice();
+                        }
+                    }, 2000);
+                } else {
+                    showStatus(result.message || 'Failed to restore backup', 'error');
+                }
+            } catch (error) {
+                showStatus(`Restore error: ${error.message}`, 'error');
+            }
+        }
+
+        async function deleteBackup(backupName) {
+            if (!confirm(`Delete backup "${backupName}"? This cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/ota', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `action=delete_backup&backup_name=${encodeURIComponent(backupName)}`
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message || 'Backup deleted', 'success');
+                    listBackups(); // Refresh the list
+                } else {
+                    showStatus(result.message || 'Failed to delete backup', 'error');
+                }
+            } catch (error) {
+                showStatus(`Delete error: ${error.message}`, 'error');
+            }
+        }
+
+        async function clearOldBackups() {
+            if (!confirm('Delete all backups older than 7 days?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/ota', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'action=clear_old_backups'
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showStatus(result.message || 'Old backups cleared', 'success');
+                    loadBackupInfo();
+                    listBackups();
+                } else {
+                    showStatus(result.message || 'Failed to clear old backups', 'error');
+                }
+            } catch (error) {
+                showStatus(`Clear error: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadBackupInfo() {
+            try {
+                const response = await fetch('/ota', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'action=backup_info'
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    document.getElementById('backup-status').textContent =
+                        result.auto_backup ? 'Enabled' : 'Disabled';
+                    document.getElementById('last-backup').textContent =
+                        result.last_backup || 'Never';
+                    document.getElementById('backup-count').textContent =
+                        result.backup_count || '0';
+
+                    const toggleBtn = document.getElementById('backup-toggle-btn');
+                    toggleBtn.textContent = result.auto_backup ?
+                        '🚫 Disable Auto Backup' : '✅ Enable Auto Backup';
+                }
+            } catch (error) {
+                console.log('Could not load backup info:', error);
+            }
+        }
+
+        async function refreshSystemInfo() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+
+                document.getElementById('device-name').textContent =
+                    data.vehicleName || 'Unknown Device';
+                document.getElementById('free-memory').textContent =
+                    data.memory ? `${Math.round(data.memory.free / 1024)} KB` : 'Unknown';
+                document.getElementById('uptime').textContent =
+                    data.uptime || 'Unknown';
+
+                // Get OTA-specific info
+                const otaResponse = await fetch('/ota', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'action=system_info'
+                });
+                const otaData = await otaResponse.json();
+
+                if (otaData.success) {
+                    document.getElementById('flash-size').textContent =
+                        otaData.flash_size || 'Unknown';
+                    document.getElementById('last-update').textContent =
+                        otaData.last_update || 'Never';
+                }
+            } catch (error) {
+                console.log('Could not refresh system info:', error);
+            }
+        }
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function () {
+            refreshSystemInfo();
+            loadBackupInfo();
+            showStatus('OTA Update system ready', 'info');
+        });
+    </script>
+</body>
+
+</html>

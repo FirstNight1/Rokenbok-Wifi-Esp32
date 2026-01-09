@@ -14,7 +14,11 @@
             <h2>Admin Settings</h2>
             <form method="POST" action="/admin">
                 <label>Vehicle Type:</label><br>
-                <select name="vehicleType" onchange="updateVehicleTag()">{{ type_options }}</select><br><br>
+                <select name="vehicleType">{{ type_options }}</select><br>
+                <small style="color:#c00;font-size:0.95em;display:block;margin-bottom:10px;">
+                    Note: If you change the vehicle type, please save first. Vehicle tag and motor/config settings will
+                    update after saving.
+                </small>
                 <label>Vehicle Tag:</label><br>
                 <input name="vehicleTag" value="{{ vehicle_tag }}" id="vehicleTag"><br><br>
                 <label>Vehicle Name:</label><br>
@@ -57,58 +61,79 @@
                 <button type="submit" name="cancel" value="1">Cancel</button>
 
                 <script>
-                    // Vehicle type mapping for dynamic tag updates
-                    var vehicleTypeMapString = '{{ vehicle_type_map }}';
-                    var vehicleTypes = vehicleTypeMapString ? JSON.parse('{' + vehicleTypeMapString + '}') : {};
-                    var originalTag = "{{ vehicle_tag }}";
+                    // Show unsaved camera setting values in red until saved
+                    document.addEventListener('DOMContentLoaded', function () {
+                        const sliders = [
+                            { name: 'cam_quality', display: 'qualityValue' },
+                            { name: 'cam_contrast', display: 'contrastValue' },
+                            { name: 'cam_brightness', display: 'brightnessValue' },
+                            { name: 'cam_saturation', display: 'saturationValue' }
+                        ];
+                        // Store initial config values
+                        const initialValues = {};
+                        sliders.forEach(function (s) {
+                            const slider = document.querySelector(`input[name="${s.name}"]`);
+                            const display = document.getElementById(s.display);
+                            if (slider && display) {
+                                initialValues[s.name] = slider.value;
+                                display.textContent = slider.value;
+                                slider.addEventListener('input', function () {
+                                    display.textContent = this.value;
+                                    if (this.value !== initialValues[s.name]) {
+                                        display.style.color = 'red';
+                                    } else {
+                                        display.style.color = '';
+                                    }
+                                });
+                            }
+                        });
+                        // Stop camera stream when navigating away
+                        function stopStream() {
+                            fetch('/api/stop_stream', { method: 'POST' });
+                        }
+                        window.addEventListener('beforeunload', stopStream);
+                        document.addEventListener('visibilitychange', function () {
+                            if (document.visibilityState === 'hidden') {
+                                stopStream();
+                            }
+                        });
+                        // On form submit (save), reset colors and update initial values
+                        const form = document.querySelector('form[action="/admin"]');
+                        if (form) {
+                            // Save button logic
+                            form.addEventListener('submit', function (e) {
+                                // Only update initial values if Save is clicked
+                                const saveBtn = form.querySelector('button[name="save"]');
+                                if (document.activeElement === saveBtn) {
+                                    sliders.forEach(function (s) {
+                                        const slider = document.querySelector(`input[name="${s.name}"]`);
+                                        const display = document.getElementById(s.display);
+                                        if (slider && display) {
+                                            initialValues[s.name] = slider.value;
+                                            display.style.color = '';
+                                        }
+                                    });
+                                }
+                            });
 
-                    function updateVehicleTag() {
-                        var typeSelect = document.querySelector('select[name="vehicleType"]');
-                        var tagInput = document.getElementById('vehicleTag');
-                        if (!typeSelect || !tagInput) return;
-
-                        var selectedType = typeSelect.value;
-                        var newPrefix = vehicleTypes[selectedType] || selectedType;
-
-                        // Get the current tag suffix (part after the dash)
-                        var currentTag = tagInput.value;
-                        var suffix = '';
-
-                        // Extract suffix from current tag if it has one
-                        if (currentTag.includes('-')) {
-                            var parts = currentTag.split('-');
-                            if (parts.length >= 2) {
-                                suffix = parts.slice(1).join('-'); // Keep everything after first dash
+                            // Cancel button logic
+                            const cancelBtn = form.querySelector('button[name="cancel"]');
+                            if (cancelBtn) {
+                                cancelBtn.addEventListener('click', function (e) {
+                                    e.preventDefault(); // Prevent form submission
+                                    sliders.forEach(function (s) {
+                                        const slider = document.querySelector(`input[name="${s.name}"]`);
+                                        const display = document.getElementById(s.display);
+                                        if (slider && display) {
+                                            slider.value = initialValues[s.name];
+                                            display.textContent = initialValues[s.name];
+                                            display.style.color = '';
+                                        }
+                                    });
+                                });
                             }
                         }
-
-                        // Generate new tag with the new prefix
-                        if (suffix) {
-                            tagInput.value = newPrefix + '-' + suffix;
-                        } else {
-                            // If no suffix, generate random one
-                            var randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
-                            tagInput.value = newPrefix + '-' + randomSuffix;
-                        }
-                    }
-
-                    // Update range slider display values
-                    function updateSliderDisplay(sliderId, displayId) {
-                        const slider = document.querySelector(`input[name="${sliderId}"]`);
-                        const display = document.getElementById(displayId);
-                        if (slider && display) {
-                            display.textContent = slider.value;
-                            slider.oninput = function () {
-                                display.textContent = this.value;
-                            };
-                        }
-                    }
-
-                    // Initialize slider displays
-                    updateSliderDisplay('cam_quality', 'qualityValue');
-                    updateSliderDisplay('cam_contrast', 'contrastValue');
-                    updateSliderDisplay('cam_brightness', 'brightnessValue');
-                    updateSliderDisplay('cam_saturation', 'saturationValue');
+                    });
                 </script>
             </form>
         </div>

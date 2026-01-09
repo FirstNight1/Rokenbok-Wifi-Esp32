@@ -6,7 +6,7 @@ Requires custom MicroPython firmware with mp_jpeg module.
 """
 
 import uasyncio as asyncio
-from variables.vars_store import load_config
+from RokCommon.variables.vars_store import load_config
 
 # Import camera and JPEG modules
 try:

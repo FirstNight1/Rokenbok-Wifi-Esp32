@@ -5,8 +5,17 @@ This project aims to replace the mainboards in Rokenbok vehicles with new microc
 ## Release History:
 This project has not yet been released as an official version, and is entirely a work in progress.
 
+## Project Layout
+RokCommon contains all of the basic shared functionality between the two main projects, RokVehicle, and RokVision.  For example, the wifi operation is the same between both projects, so would be in RokCommon.
+RokVehicle is the specific adaptations for vehicle control, and is deployed to the controller responsible for motor and function control.
+RokVision is the specific adaptations for FPV, and is deployed to the camera controller.
+
+RokVision and RokVehicle both deploy to the root folder, so must contain a main.py and boot.py for each.  This also allows RokCommon to reference things like configuration files at the same path, regardless of vehicle type.  RokCommon is deployed as a directory under the root (/RokCommon/...), and is referenced that way by vehicle-specific files.
+
+This approach ensures parity on functions and improvements between both projects, while simplifying updates and reducing drift between projects.
+
 ## Vehicle Conversion Notes
-There are several conversion options with steps contained in the VehicleInfo folder.  This gives a brief overview of the various conversion options.
+There are several conversion options with documented steps contained in the VehicleInfo folder.  This gives a brief overview of the various conversion options.
 - Power Conversion: Adds a boost regulator to step up the input voltage to 5V
   - Allows using NiMh rechargeable batteries or similar while providing alkaline-like performance of the vehicle
   - Cost: $10-$15
@@ -75,5 +84,6 @@ If the vehicle is equipped with LEDs (or the remote key slot is wired for the re
 - [ ] Bluetooth gamepads directly
 - [ ] Test with a true dpad gamepad, not a dpad-axis gamepad.
 - [ ] Test with a two-stick gamepad (with dpad also)
+- [ ] Move common components (web assets, web system, wifi system, configuration system, etc.) to shared/common folder, to remove repeated code.  RokVehicle and RokVision would then only have specific behavior to that.
 
 'https://github.com/cnadler86/micropython-camera-API/releases/download/v0.6.1/mpy_cam-v1.27.0-ESP32_GENERIC_S3-SPIRAM_OCT.zip' -OutFile 'ESP32S3_camera_firmware.zip'"

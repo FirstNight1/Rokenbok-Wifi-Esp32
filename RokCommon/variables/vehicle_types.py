@@ -1,15 +1,17 @@
 # variables/vehicle_types.py
 
+# ---------------------------------------------------------
+# Defines the various vehicle types and their motor/function configurations
+# the typeFriendlyName is used for display in the admin page
+# the tagName is used as a prefix when using the default vehicle Tag (does not override custom tags)
+# Axis motors are motors that can be controlled variably, i.e. by an axis rather than on/off.
+#   on most vehicles, these are the left and right drive motors
+# Motor functions are motors that are controlled as either on or off, with no variable speed control.
+#   these are typically used for functions like lifting a bed, operating a blade, etc.
+# functions are additional non-motor functions that can be toggled on/off, such as lights or sirens.
+# ---------------------------------------------------------
 
 VEHICLE_TYPES = [
-    {
-        "typeName": "fpv",
-        "typeFriendlyName": "No Vehicle Association (FPV)",
-        "tagName": "RokVision",
-        "axis_motors": [],
-        "motor_functions": [],
-        "functions": [],
-    },
     {
         "typeName": "loader",
         "typeFriendlyName": "Loader",
@@ -23,7 +25,7 @@ VEHICLE_TYPES = [
         "typeFriendlyName": "Dozer",
         "tagName": "dozer",
         "axis_motors": ["left", "right"],
-        "motor_functions": ["lift"],
+        "motor_functions": ["blade"],
         "functions": [],
     },
     {
@@ -123,3 +125,10 @@ VEHICLE_TYPES = [
         "functions": [],
     },
 ]
+
+
+def get_type(typeName):
+    for t in VEHICLE_TYPES:
+        if t["typeName"] == typeName:
+            return t
+    return VEHICLE_TYPES[0]

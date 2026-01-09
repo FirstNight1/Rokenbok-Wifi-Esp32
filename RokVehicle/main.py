@@ -4,7 +4,7 @@ time.sleep(2)  # allow USB enumeration before WiFi touches peripherals
 
 import web.web_server
 from variables.vars_store import load_config
-from networking.wifi_manager import connect_to_wifi, start_ap_mode
+from RokCommon.networking.wifi_manager import connect_to_wifi
 from control.led_status import init_led_status, startup_blink, set_wifi_status
 
 # Start UDP listener (non-blocking). Module auto-starts its thread on import.
@@ -27,15 +27,8 @@ else:
     if led_manager:
         led_manager.set_override(True, False)
 
-# Try STA mode first if configured
+# Connect to Wifi
 wlan = connect_to_wifi()
-
-# If failed, go AP mode
-if not wlan or not wlan.isconnected():
-    print("Starting AP mode...")
-    start_ap_mode(cfg["vehicleTag"])
-else:
-    print("Connected in STA mode.")
 
 # Set LED pattern based on WiFi status and exit
 if led_enabled:

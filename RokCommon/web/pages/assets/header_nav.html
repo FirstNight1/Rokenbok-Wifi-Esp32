@@ -53,16 +53,27 @@
     .play-now-btn:hover {
         background: #219150;
     }
+
+    @media (max-width: 600px) {
+        .nav-bar a {
+            margin: 0 8px;
+            font-size: 1em;
+        }
+
+        .header-bar {
+            font-size: 1.6em;
+        }
+    }
 </style>
 <div class="header-bar">
-    Rokenbok Vehicle Control
+    Rokenbok Device Control
     <div class="vehicle-name">{{ vehicle_name }}</div>
 </div>
 <div class="nav-bar">
-    <a href="/">Go Home</a>
+    <a href="/">Home</a>
     <a href="/admin">Admin</a>
     <a href="/wifi">WiFi</a>
-    <a href="/testing">Motor Config</a>
-    <a href="/play">Play</a>
-    <a href="/ota">OTA Updates</a>
+    <a href="/testing">{{ testing_label }}</a>
+    {{ play_link }}
+    <a href="/ota">Update</a>
 </div>

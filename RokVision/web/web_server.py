@@ -1,7 +1,11 @@
 import uasyncio as asyncio
 import sys
-from web.pages import wifi_page, admin_page, home_page, testing_page, ota_page
-from variables.vars_store import load_config
+from web.pages import admin_page, testing_page
+from RokCommon.ota import ota_page
+from RokCommon.web import handle_request, create_routes_from_modules
+from RokCommon.web.pages import wifi_page, home_page
+from RokCommon.web.api_handler import create_api_handler
+from variables.vars_store import get_config_value
 import gc
 
 # Import performance monitoring
@@ -23,13 +27,54 @@ except ImportError:
 _template_cache = {}
 _cache_enabled = True
 
+
+# Create routes using the unified home page
 ROUTES = {
-    "/": home_page,
-    "/wifi": wifi_page,
+    "/": home_page.home_handler,
+    "/wifi": wifi_page.wifi_handler,
     "/admin": admin_page,
     "/testing": testing_page,
-    "/ota": ota_page,
+    "/ota": ota_page.ota_handler,  # Use the new unified handler
 }
+
+
+def handle_stream_stop(request):
+    """Handle camera stream stop requests"""
+    try:
+        from cam.camera_stream import stop_stream
+
+        stop_stream()
+        import json
+
+        response_data = json.dumps(
+            {"success": True, "message": "Camera stream stopped."}
+        )
+        return (
+            f"HTTP/1.1 200 OK\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(response_data)}\r\n"
+            f"\r\n"
+            f"{response_data}"
+        )
+    except Exception as e:
+        import json
+
+        error_data = json.dumps(
+            {"success": False, "message": f"Failed to stop stream: {e}"}
+        )
+        return (
+            f"HTTP/1.1 500 Internal Server Error\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(error_data)}\r\n"
+            f"\r\n"
+            f"{error_data}"
+        )
+
+
+# Custom API endpoints for RokVision
+custom_endpoints = {"/stop_stream": handle_stream_stop}
+
+api_handler = create_api_handler(custom_endpoints=custom_endpoints)
 
 # Content type mapping for static assets
 CONTENT_TYPES = {
@@ -77,14 +122,10 @@ async def precache_critical_assets():
 
     print("Pre-caching critical assets...")
 
-    # Critical assets in order of size/importance for RokVision
+    # Critical assets in order of size/importance for RokVision (ota_page.html now unified in RokCommon)
     critical_assets = [
-        "ota_page.html",  # 15KB - largest asset (optimized from 21KB)
         "admin_page.html",  # 8KB - admin interface
-        "wifi_page.html",  # 4KB - wifi config
-        "home_page.html",  # 3KB - home page
         "testing_page.html",  # 2KB - testing page
-        "header_nav.html",  # 2KB - navigation
     ]
 
     # Get base directory for assets
@@ -131,7 +172,8 @@ def _get_content_type(filepath):
 
 
 async def handle_client(reader, writer):
-    client_ip = None
+    """Unified client handler with RokVision-specific features"""
+    client_ip = "unknown"
     try:
         # Get client IP for logging
         try:
@@ -141,9 +183,17 @@ async def handle_client(reader, writer):
                 else "unknown"
             )
         except Exception:
-            client_ip = "unknown"
+            pass
 
-        # --- Read request line ---
+        # Performance monitoring
+        if perf_monitor:
+            perf_monitor.log_request("unknown")
+
+        # Memory pressure check
+        if memory_pressure_check and memory_pressure_check():
+            gc.collect()
+
+        # Read request line
         req_line = await reader.readline()
         if not req_line:
             await writer.aclose()
@@ -151,12 +201,12 @@ async def handle_client(reader, writer):
 
         line = req_line.decode().strip()
 
-        # Chrome HTTP/2 probe, reject immediately
-        if line.startswith("PRI * HTTP/2.0"):
+        # Handle HTTP/2 probes and malformed requests
+        if line.startswith("PRI * HTTP/2.0") or not line:
             await writer.aclose()
             return
 
-        # Split safely (Chrome sometimes sends extra spaces)
+        # Parse request line
         parts = line.split()
         if len(parts) < 2:
             await writer.aclose()
@@ -164,43 +214,152 @@ async def handle_client(reader, writer):
 
         method = parts[0]
         full_path = parts[1]
-        # Split path and query string
         if "?" in full_path:
             path, query_string = full_path.split("?", 1)
         else:
-            path = full_path
-            query_string = ""
+            path, query_string = full_path, ""
 
-        # Log request for performance monitoring
+        # Update performance monitoring with actual path
         if perf_monitor:
             perf_monitor.log_request(path)
 
-        # Check memory pressure and force GC if needed
-        if memory_pressure_check and memory_pressure_check():
-            gc.collect()
-
-        # --- Read headers until blank line ---
+        # Read headers
         headers = {}
         header_count = 0
-        while header_count < 50:  # Limit headers to prevent DoS
+        while header_count < 50:
             hdr = await reader.readline()
             if not hdr or hdr == b"\r\n":
                 break
             try:
                 line = hdr.decode().strip()
                 header_count += 1
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    headers[k.strip().lower()] = v.strip()
             except Exception:
                 continue
-            if ":" in line:
-                k, v = line.split(":", 1)
-                headers[k.strip().lower()] = v.strip()
 
-        # Yield control to prevent blocking
-        await asyncio.sleep(0)
+        await asyncio.sleep(0)  # Yield control
 
-        # --- Favicon request (redirect to assets) ---
+        # Handle static assets (RokVision specific)
+        if path.startswith("/assets/") or path == "/favicon.ico":
+            await _handle_static_assets(writer, path)
+            return
+
+        # Handle API endpoints via common API handler
+        if path.startswith("/api/"):
+            await _handle_api_request(
+                reader, writer, method, headers, path, query_string
+            )
+            return
+
+        # Handle legacy status endpoint (redirect to API)
+        if path == "/status":
+            await _handle_legacy_status(writer)
+            return
+
+        # Handle legacy camera stream API (redirect to new API)
+        if path == "/api/stop_stream" and method == "POST":
+            await _handle_legacy_stream_stop(writer)
+            return
+
+        # Use unified handler for all page routes
+        await handle_request(reader, writer, ROUTES, _load_template)
+
+    except Exception as e:
+        print(f"Error handling request from {client_ip}: {e}")
+        sys.print_exception(e)
+    finally:
+        try:
+            await writer.aclose()
+        except Exception:
+            pass
+        gc.collect()
+
+
+async def _handle_api_request(reader, writer, method, headers, path, query_string):
+    """Handle API requests via common API handler"""
+    try:
+        # Read body for POST requests
+        body = ""
+        if method == "POST":
+            content_length = int(headers.get("content-length", 0))
+            if content_length > 0:
+                body_bytes = await reader.read(content_length)
+                body = (
+                    body_bytes.decode("utf-8")
+                    if isinstance(body_bytes, bytes)
+                    else str(body_bytes)
+                )
+
+        # Create Request object
+        from RokCommon.web.request_response import Request
+
+        request = Request(
+            method=method,
+            path=path,
+            query_string=query_string,
+            body=body,
+            headers=headers,
+            content_type=headers.get("content-type", ""),
+        )
+
+        # Handle via API handler
+        response = await api_handler.handle(request)
+
+        # Send response
+        response_data = response.encode("utf-8")
+        writer.write(response_data)
+        await writer.drain()
+        await writer.aclose()
+
+    except Exception as e:
+        print(f"API request error: {e}")
+        try:
+            writer.write(b"HTTP/1.1 500 Internal Server Error\r\n\r\n")
+            await writer.drain()
+            await writer.aclose()
+        except Exception:
+            pass
+
+
+async def _handle_legacy_status(writer):
+    """Handle legacy /status endpoint by redirecting to /api/status"""
+    try:
+        writer.write(
+            b"HTTP/1.1 301 Moved Permanently\r\nLocation: /api/status\r\nCache-Control: no-cache\r\n\r\n"
+        )
+        await writer.drain()
+        await writer.aclose()
+    except Exception as e:
+        print(f"Legacy status redirect error: {e}")
+        try:
+            await writer.aclose()
+        except Exception:
+            pass
+
+
+async def _handle_legacy_stream_stop(writer):
+    """Handle legacy stream stop endpoint by redirecting to new API"""
+    try:
+        writer.write(
+            b"HTTP/1.1 301 Moved Permanently\r\nLocation: /api/stop_stream\r\nCache-Control: no-cache\r\n\r\n"
+        )
+        await writer.drain()
+        await writer.aclose()
+    except Exception as e:
+        print(f"Legacy stream stop redirect error: {e}")
+        try:
+            await writer.aclose()
+        except Exception:
+            pass
+
+
+async def _handle_static_assets(writer, path):
+    """Handle static asset requests for RokVision"""
+    try:
+        # Handle favicon redirect
         if path == "/favicon.ico":
-            # Redirect to the actual favicon location
             writer.write(
                 b"HTTP/1.1 301 Moved Permanently\r\nLocation: /assets/favicon.ico\r\nCache-Control: max-age=86400\r\n\r\n"
             )
@@ -208,194 +367,93 @@ async def handle_client(reader, writer):
             await writer.aclose()
             return
 
-        # --- Static assets (serve files under /assets/) ---
-        if path.startswith("/assets/"):
-            import os
+        import os
 
-            # Map /assets/<name> -> web/pages/assets/<name>
-            sub = path[len("/assets/") :]
-            base_file = __file__
-            # Compute base directory manually (MicroPython may not have os.path)
-            if "/" in base_file:
-                base_dir = base_file.rsplit("/", 1)[0]
-            elif "\\" in base_file:
-                base_dir = base_file.rsplit("\\", 1)[0]
-            else:
-                base_dir = "."
+        # Extract asset path
+        sub = path[len("/assets/") :]
+        base_file = __file__
+        if "/" in base_file:
+            base_dir = base_file.rsplit("/", 1)[0]
+        elif "\\" in base_file:
+            base_dir = base_file.rsplit("\\", 1)[0]
+        else:
+            base_dir = "."
 
-            fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", sub.lstrip("/")])
+        fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", sub.lstrip("/")])
 
-            try:
-                # Check if this is a binary asset type that should not be templated
-                is_binary = (
-                    fpath.endswith(".ico")
-                    or fpath.endswith(".png")
-                    or fpath.endswith(".jpg")
-                    or fpath.endswith(".jpeg")
-                    or fpath.endswith(".gif")
-                    or fpath.endswith(".woff")
-                    or fpath.endswith(".woff2")
-                    or fpath.endswith(".ttf")
+        # Check if binary asset
+        is_binary = any(
+            fpath.endswith(ext)
+            for ext in [
+                ".ico",
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".gif",
+                ".woff",
+                ".woff2",
+                ".ttf",
+            ]
+        )
+
+        # Try cached content for text assets
+        if not is_binary:
+            content = _load_template(fpath)
+            if content:
+                ctype = _get_content_type(fpath)
+                content_bytes = (
+                    content.encode("utf-8") if isinstance(content, str) else content
                 )
 
-                # Use template caching for text assets only
-                if not is_binary:
-                    content = _load_template(fpath)
-                else:
-                    content = None
-
-                if content:
-                    ctype = _get_content_type(fpath)
-                    clen = (
-                        len(content)
-                        if isinstance(content, bytes)
-                        else len(content.encode("utf-8"))
-                    )
-
-                    writer.write(
-                        f"HTTP/1.1 200 OK\r\n"
-                        f"Content-Type: {ctype}\r\n"
-                        f"Content-Length: {clen}\r\n"
-                        f"Cache-Control: no-store\r\n\r\n"
-                    )
-                    await writer.drain()
-
-                    # Send content in chunks
-                    content_bytes = (
-                        content
-                        if isinstance(content, bytes)
-                        else content.encode("utf-8")
-                    )
-                    for i in range(0, len(content_bytes), 1024):
-                        chunk = content_bytes[i : i + 1024]
-                        writer.write(chunk)
-                        await writer.drain()
-                        # Yield control briefly between chunks
-                        await asyncio.sleep_ms(1)
-
-                    await writer.aclose()
-                    return
-                else:
-                    # Fallback to file streaming for binary assets
-                    try:
-                        stat = os.stat(fpath)
-                        clen = stat[6]
-                        ctype = _get_content_type(fpath)
-
-                        writer.write(
-                            f"HTTP/1.1 200 OK\r\n"
-                            f"Content-Type: {ctype}\r\n"
-                            f"Content-Length: {clen}\r\n"
-                            f"Cache-Control: no-store\r\n\r\n"
-                        )
-                        await writer.drain()
-
-                        with open(fpath, "rb") as fh:
-                            while True:
-                                chunk = fh.read(
-                                    512
-                                )  # Smaller chunks for responsiveness
-                                if not chunk:
-                                    break
-                                writer.write(chunk)
-                                await writer.drain()
-                                await asyncio.sleep_ms(1)  # Yield between chunks
-                        await writer.aclose()
-                        return
-                    except Exception:
-                        # File not found - fall through to route handling
-                        pass
-            except Exception:
-                # File not found - fall through to route handling
-                pass
-
-        # --- /status endpoint ---
-        if path == "/status":
-            import json
-
-            try:
-                cfg = load_config()
-            except Exception:
-                cfg = {}
-
-            # Read MCU temperature if available
-            mcu_temp = None
-            if esp32_available and hasattr(esp32, "mcu_temperature"):
-                try:
-                    mcu_temp = esp32.mcu_temperature()
-                except Exception:
-                    pass
-
-            resp = {
-                "type": cfg.get("vehicleType", "Unknown"),
-                "tag": cfg.get("vehicleTag", "N/A"),
-                "vehicleName": cfg.get("vehicleName", "Unnamed Vehicle"),
-                "busy": False,  # RokVision doesn't use WebSocket control
-                "battery": None,
-                "mcu_temp": mcu_temp,
-                "project": "RokVision",
-            }
-
-            json_response = json.dumps(resp)
-            response = f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{json_response}"
-            writer.write(response.encode("utf-8"))
-            await writer.drain()
-            await writer.aclose()
-            return
-
-        # --- Route handling (GET/POST) ---
-        page = ROUTES.get(path)
-        if page:
-            if method == "GET":
-                try:
-                    status, ctype, html = page.handle_get(query_string)
-                except TypeError:
-                    # Fallback for pages that don't accept query_string
-                    status, ctype, html = page.handle_get()
-
-                # Send response in chunks to prevent blocking
-                header = f"HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\n\r\n"
-                writer.write(header)
+                writer.write(
+                    f"HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {len(content_bytes)}\r\nCache-Control: no-store\r\n\r\n"
+                )
                 await writer.drain()
 
-                # Chunked HTML delivery
-                if isinstance(html, str):
-                    html_bytes = html.encode("utf-8")
-                else:
-                    html_bytes = html
-
-                for i in range(0, len(html_bytes), 1024):
-                    chunk = html_bytes[i : i + 1024]
+                # Send content in chunks
+                for i in range(0, len(content_bytes), 1024):
+                    chunk = content_bytes[i : i + 1024]
                     writer.write(chunk)
                     await writer.drain()
-                    # Brief yield between chunks
                     await asyncio.sleep_ms(1)
 
                 await writer.aclose()
                 return
 
-            elif method == "POST":
-                # Read POST body
-                content_length = int(headers.get("content-length", 0))
-                body = await reader.read(content_length) if content_length else b""
-                body = body.decode() if isinstance(body, bytes) else body
+        # Fallback to file streaming for binary assets or cache miss
+        try:
+            stat = os.stat(fpath)
+            clen = stat[6]
+            ctype = _get_content_type(fpath)
 
-                # Load config for POST handler
-                try:
-                    cfg = load_config()
-                except Exception:
-                    cfg = None
+            writer.write(
+                f"HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {clen}\r\nCache-Control: no-store\r\n\r\n"
+            )
+            await writer.drain()
 
-                new_cfg, redirect = page.handle_post(body, cfg)
-
-                writer.write(f"HTTP/1.1 303 See Other\r\nLocation: {redirect}\r\n\r\n")
-                await writer.drain()
-                await writer.aclose()
-                return
+            with open(fpath, "rb") as fh:
+                while True:
+                    chunk = fh.read(512)
+                    if not chunk:
+                        break
+                    writer.write(chunk)
+                    await writer.drain()
+                    await asyncio.sleep_ms(1)
+            await writer.aclose()
+        except Exception:
+            # File not found
+            writer.write(b"HTTP/1.1 404 Not Found\r\n\r\n")
+            await writer.drain()
+            await writer.aclose()
 
     except Exception as e:
-        print("Web server error:", e)
-        sys.print_exception(e)
+        print(f"Error serving static asset {path}: {e}")
+        try:
+            writer.write(b"HTTP/1.1 500 Internal Server Error\r\n\r\n")
+            await writer.drain()
+            await writer.aclose()
+        except Exception:
+            pass
 
 
 async def start_web_server():

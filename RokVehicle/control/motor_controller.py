@@ -3,7 +3,7 @@
 import time
 from machine import Pin, PWM
 from variables.vars_store import load_config, save_config
-from variables.vehicle_types import VEHICLE_TYPES
+from RokCommon.variables.vehicle_types import VEHICLE_TYPES
 import gc
 
 try:

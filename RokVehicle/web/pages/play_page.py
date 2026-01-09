@@ -1,7 +1,7 @@
 # pages/play_page.py
 
-from variables.vars_store import load_config, save_config
-from variables.vehicle_types import VEHICLE_TYPES
+from RokCommon.variables.vars_store import get_config_value
+from RokCommon.variables.vehicle_types import VEHICLE_TYPES
 import json
 
 
@@ -11,11 +11,10 @@ import json
 
 
 def get_vehicle_info():
-    cfg = load_config()
-    vtype = cfg.get("vehicleType")
-
+    vtype = get_config_value("vehicleType")
+    vehicle_name = get_config_value("vehicleName")
     info = next((v for v in VEHICLE_TYPES if v["typeName"] == vtype), None)
-    return cfg, vtype, info
+    return vtype, vehicle_name, info
 
 
 # ---------------------------------------------------------
@@ -35,8 +34,8 @@ def handle_get(query_string=None):
     The heavy gamepad mapping and streaming logic will be implemented later.
     """
 
-    cfg, vtype, info = get_vehicle_info()
-    vehicle_name = cfg.get("vehicleName") or ""
+    vtype, vehicle_name, info = get_vehicle_info()
+    vehicle_name = vehicle_name or ""
 
     # Bluetooth scan endpoint
     if query_string and "bluetooth_scan" in query_string:

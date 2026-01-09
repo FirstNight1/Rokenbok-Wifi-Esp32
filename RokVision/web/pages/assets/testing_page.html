@@ -54,6 +54,17 @@
             setTimeout(function () {
                 img.src = 'http://' + host + ':' + port + '/stream';
             }, 1000);
+
+            // Stop camera stream when navigating away
+            function stopStream() {
+                fetch('/api/stop_stream', { method: 'POST' });
+            }
+            window.addEventListener('beforeunload', stopStream);
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState === 'hidden') {
+                    stopStream();
+                }
+            });
         })();
     </script>
 </body>

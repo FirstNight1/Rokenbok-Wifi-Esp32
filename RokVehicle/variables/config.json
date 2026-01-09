@@ -1,0 +1,18 @@
+{
+    "projectType": "vehicle",
+    "vehicleType": "loader",
+    "vehicleTag": "RokVehicle-DEFAULT",
+    "vehicleName": null,
+    "ssid": null,
+    "wifipass": null,
+    "ip_mode": "dhcp",
+    "static_ip": "",
+    "static_mask": "",
+    "static_gw": "",
+    "static_dns": "",
+    "motor_min": {},
+    "ota_auto_backup": true,
+    "ota_last_update": null,
+    "ota_update_count": 0,
+    "ota_github_url": "https://github.com/FirstNight1/Rokenbok-Wifi-Esp32/tree/main/"
+}

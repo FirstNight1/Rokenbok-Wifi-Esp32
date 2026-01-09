@@ -1,3 +1,0 @@
-# Requirements for home_page.py
-
-# Add your requirements below:
