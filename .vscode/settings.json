@@ -7,7 +7,7 @@
         "./lib",
         "${workspaceFolder}/.venv/Lib/site-packages/micropython_esp32_stubs"
     ],
-    "editor.formatOnSave": true,
+    "editor.formatOnSave": false,
     // Make mpremote default
     "pythonTerminal.launchArgs": [],
     "microPython.replDelay": 100

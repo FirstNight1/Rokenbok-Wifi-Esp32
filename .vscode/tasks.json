@@ -72,7 +72,7 @@
         {
             "label": "Show all files",
             "type": "shell",
-            "command": "python -m mpremote connect COM10 fs tree",
+            "command": "python -m mpremote connect COM19 fs tree",
             "group": "build",
             "problemMatcher": []
         },

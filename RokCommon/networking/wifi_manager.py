@@ -1,7 +1,7 @@
 import network
 import time
 import ubinascii
-from RokCommon.variables.vars_store import load_config, save_config
+from RokCommon.variables.vars_store import get_config_value, save_config_value
 
 # Variables
 reboot_file = "/variables/reboot_count.txt"
@@ -37,16 +37,15 @@ def start_ap_mode(tag):
 # Falls back to AP mode if the connection fails, or multiple reboots are detected (while in STA mode)
 # ---------------------------------------------------------
 def connect_to_wifi():
-    cfg = load_config()
-    ssid = cfg.get("ssid")
-    password = cfg.get("wifipass")
-    ip_mode = cfg.get("ip_mode", "dhcp")
-    static_ip = cfg.get("static_ip", "")
-    static_mask = cfg.get("static_mask", "")
-    static_gw = cfg.get("static_gw", "")
-    static_dns = cfg.get("static_dns", "")
+    ssid = get_config_value("ssid")
+    password = get_config_value("wifipass")
+    ip_mode = get_config_value("ip_mode", "dhcp")
+    static_ip = get_config_value("static_ip", "")
+    static_mask = get_config_value("static_mask", "")
+    static_gw = get_config_value("static_gw", "")
+    static_dns = get_config_value("static_dns", "")
 
-    tag = cfg.get("vehicleTag") or "RokDevice"
+    tag = get_config_value("vehicleTag", "RokDevice")
 
     # If ssid is not defined, do not connect to local network, and use AP mode.
     if not ssid:
@@ -56,7 +55,7 @@ def connect_to_wifi():
     # Log reboot time and count, and if multiple quick reboots detected, force AP mode
     if logreboot():
         print("Detected multiple quick reboots, forcing AP mode.")
-        tag = cfg.get("vehicleTag") or "RokDevice"
+        tag = get_config_value("vehicleTag", "RokDevice")
         return start_ap_mode(tag)
 
     # Continue to STA mode to connect to configured network.
@@ -117,16 +116,16 @@ def connect_to_wifi():
         for _ in range(20):  # 6 seconds max
             if sta.isconnected():
                 print("Connected!", sta.ifconfig())
-                cfg["wifi_error"] = False
-                save_config(cfg)
+                save_config_value("wifi_error", False)
                 return sta
 
             time.sleep(0.3)
 
     print("Failed to connect after 5 attempts.")
-    cfg["wifi_error"] = True
-    cfg["wifi_error_text"] = locals().get("wifierror", "Unknown Error occurred")
-    save_config(cfg)
+    save_config_value("wifi_error", True)
+    save_config_value(
+        "wifi_error_text", locals().get("wifierror", "Unknown Error occurred")
+    )
     return None
 
 

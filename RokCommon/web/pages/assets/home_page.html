@@ -21,27 +21,34 @@
         <p><b>IP Address:</b> {{ ip }}</p>
     </div>
     <script>
-        // Single status fetch - no auto-refresh
+        // Initialize with server-side values from config - no fallbacks needed
+        document.getElementById('vehicle_name').textContent = '{{ vehicle_name }}';
+        document.getElementById('vehicle_type').textContent = '{{ device_type }}';
+        document.getElementById('vehicle_tag').textContent = 'Loading...'; // This comes from API
+
+        // Fetch dynamic status (temperature, battery, busy state)
         fetch('/api/status').then(r => r.json()).then(js => {
-            document.getElementById('vehicle_name').textContent = js.vehicleName || 'Unnamed Vehicle';
-            document.getElementById('vehicle_type').textContent = js.type || 'Unknown';
-            document.getElementById('vehicle_tag').textContent = js.tag || 'N/A';
+            // Only update dynamic values from API
+            if (js.tag) {
+                document.getElementById('vehicle_tag').textContent = js.tag;
+            }
 
             // Project type determines if busy status is available
-            { { busy_status_script } }
+            {{ busy_status_script }}
 
             document.getElementById('vehicle_battery').textContent = js.battery !== undefined && js.battery !== null ? js.battery : 'N/A';
             document.getElementById('mcu_temp').textContent = (js.mcu_temp !== undefined && js.mcu_temp !== null) ? js.mcu_temp.toFixed(1) : 'N/A';
+
+            // Update memory if API provides it (otherwise use server-side value)
             if (js.memory) {
                 const memKB = Math.round(js.memory.free / 1024);
                 document.getElementById('memory_info').textContent = `${memKB} KB free`;
             }
-            var navs = document.getElementsByClassName('vehicle-name');
-            if (navs.length > 0) navs[0].textContent = js.vehicleName || 'Unnamed Vehicle';
         }).catch(e => {
-            console.log('Status fetch failed:', e);
-            // Keep static values if fetch fails
-            document.getElementById('vehicle_status').textContent = 'Vehicle is ready';
+            console.error('Status fetch failed:', e);
+            // Keep static config values, just set reasonable defaults for dynamic ones
+            document.getElementById('vehicle_tag').textContent = 'N/A';
+            document.getElementById('vehicle_status').textContent = 'Device is ready';
             document.getElementById('vehicle_status').style.color = '#28a745';
         });
     </script>

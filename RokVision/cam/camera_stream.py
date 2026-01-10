@@ -6,7 +6,7 @@ Requires custom MicroPython firmware with mp_jpeg module.
 """
 
 import uasyncio as asyncio
-from RokCommon.variables.vars_store import load_config
+from RokCommon.variables.vars_store import get_config_value
 
 # Import camera and JPEG modules
 try:
@@ -70,11 +70,9 @@ def init_camera():
         pass
 
     try:
-        cfg = load_config()
-
         # Get camera settings from config - ensure sensible defaults
-        frame_size_id = cfg.get("cam_framesize", 4)  # Default QVGA
-        quality = cfg.get("cam_quality", 85)  # Default 85%
+        frame_size_id = get_config_value("cam_framesize", 4)  # Default QVGA
+        quality = get_config_value("cam_quality", 85)  # Default 85%
 
         # Ensure frame size is reasonable for streaming (not QXGA)
         if frame_size_id == 8:  # QXGA is too large for streaming
@@ -101,7 +99,7 @@ def init_camera():
         print(f"Camera test successful - captured {len(test_frame)} bytes")
 
         # Apply camera settings from config
-        apply_camera_settings(cfg)
+        apply_camera_settings()
 
         # Initialize JPEG encoder with RGB565_BE format (confirmed working)
         jpeg_encoder = jpeg.Encoder(
@@ -118,19 +116,19 @@ def init_camera():
         return False
 
 
-def apply_camera_settings(cfg):
+def apply_camera_settings():
     """Apply camera settings from config"""
     if not cam_instance:
         return
 
     try:
         # Apply settings with bounds checking
-        contrast = max(-2, min(2, cfg.get("cam_contrast", 0)))
-        brightness = max(-2, min(2, cfg.get("cam_brightness", 0)))
-        saturation = max(-2, min(2, cfg.get("cam_saturation", 0)))
-        vflip = bool(cfg.get("cam_vflip", 0))
-        hmirror = bool(cfg.get("cam_hmirror", 0))
-        special_effect = cfg.get("cam_speffect", 0)
+        contrast = max(-2, min(2, get_config_value("cam_contrast", 0)))
+        brightness = max(-2, min(2, get_config_value("cam_brightness", 0)))
+        saturation = max(-2, min(2, get_config_value("cam_saturation", 0)))
+        vflip = bool(get_config_value("cam_vflip", 0))
+        hmirror = bool(get_config_value("cam_hmirror", 0))
+        special_effect = get_config_value("cam_speffect", 0)
 
         cam_instance.contrast = contrast
         cam_instance.brightness = brightness
@@ -261,10 +259,8 @@ def capture_raw_qxga():
         return None
 
     try:
-        cfg = load_config()
-
         # Save current camera configuration
-        current_frame_size_id = cfg.get("cam_framesize", 4)
+        current_frame_size_id = get_config_value("cam_framesize", 4)
         current_frame_size = FRAME_SIZES.get(current_frame_size_id, FrameSize.QVGA)
 
         print("Temporarily switching to QXGA for snapshot...")
@@ -295,7 +291,7 @@ def capture_raw_qxga():
 
         # Try to restore original configuration on error
         try:
-            current_frame_size_id = cfg.get("cam_framesize", 4)
+            current_frame_size_id = get_config_value("cam_framesize", 4)
             current_frame_size = FRAME_SIZES.get(current_frame_size_id, FrameSize.QVGA)
             cam_instance.reconfigure(
                 pixel_format=PixelFormat.RGB565, frame_size=current_frame_size
@@ -320,8 +316,9 @@ async def _stream_server(cfg=None):
 
     # Get port from config or use default
     if cfg is None:
-        cfg = load_config()
-    port = cfg.get("cam_stream_port", 8081)
+        port = get_config_value("cam_stream_port", 8081)
+    else:
+        port = cfg.get("cam_stream_port", 8081)
 
     async def handle_request(reader, writer):
         try:

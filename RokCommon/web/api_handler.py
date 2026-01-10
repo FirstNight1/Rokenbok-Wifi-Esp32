@@ -89,17 +89,35 @@ class APIHandler:
 
     async def _handle_status(self, request):
         """Handle /api/status endpoint"""
+        print("[DEBUG] API status endpoint called")
         try:
             # Get basic system info
+            print("[DEBUG] Starting MCU temperature read in API")
             mcu_temp = None
+            temp_debug = "api_not_attempted"
+            print(f"[DEBUG] API: esp32_available={esp32_available}")
             if esp32_available:
+                print("[DEBUG] API: esp32 available, checking methods")
                 try:
                     if hasattr(esp32, "mcu_temperature"):
+                        print("[DEBUG] API: mcu_temperature found, trying")
                         mcu_temp = esp32.mcu_temperature()
+                        temp_debug = f"api_success_{mcu_temp}"
+                        print(f"[DEBUG] API: mcu_temperature success: {mcu_temp}")
                     elif hasattr(esp32, "raw_temperature"):
+                        print("[DEBUG] API: trying raw_temperature")
                         mcu_temp = esp32.raw_temperature()
-                except Exception:
-                    pass
+                        temp_debug = f"api_raw_success_{mcu_temp}"
+                        print(f"[DEBUG] API: raw_temperature success: {mcu_temp}")
+                    else:
+                        temp_debug = "api_no_temp_methods"
+                        print("[DEBUG] API: No temperature methods found")
+                except Exception as e:
+                    temp_debug = f"api_error_{e}"
+                    print(f"[DEBUG] API: Temperature read failed: {e}")
+            else:
+                temp_debug = "api_esp32_not_available"
+                print("[DEBUG] API: esp32 not available")
 
             # Get project type from config
             project_type = get_config_value("projectType", "unknown")
@@ -113,6 +131,7 @@ class APIHandler:
                 "project": project_type,
                 "battery": None,  # Project-specific
                 "mcu_temp": mcu_temp,
+                "temp_debug": temp_debug,  # Debug info for temperature
                 "memory": {"free": gc.mem_free(), "allocated": gc.mem_alloc()},
             }
 

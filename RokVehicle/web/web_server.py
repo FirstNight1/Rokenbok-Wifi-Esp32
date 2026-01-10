@@ -107,7 +107,7 @@ async def precache_critical_assets():
 
     print("Pre-caching critical assets...")
 
-    # Critical assets in order of size/importance (ota_page.html now unified in RokCommon)
+    # Critical assets in order of size/importance
     critical_assets = [
         "play_page.js",  # 17KB - largest, most interactive (optimized from 33KB)
         "testing_page.js",  # 10KB - testing functionality
@@ -116,6 +116,14 @@ async def precache_critical_assets():
         "admin_page.html",  # 3KB - admin interface
         "mapping_modal.css",  # 2KB - control mapping styles
         "testing_page.html",  # 2KB - testing page
+    ]
+
+    # RokCommon shared assets
+    rokcommon_assets = [
+        "ota_page.html",  # OTA update page
+        "home_page.html",  # Home page
+        "wifi_page.html",  # WiFi configuration page
+        "header_nav.html",  # Navigation header
     ]
 
     # Get base directory for assets
@@ -130,6 +138,7 @@ async def precache_critical_assets():
     cached_count = 0
     total_size = 0
 
+    # Cache local assets
     for asset in critical_assets:
         fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", asset])
         content = _load_template(fpath)
@@ -137,6 +146,17 @@ async def precache_critical_assets():
             cached_count += 1
             total_size += len(content)
             print(f"  Cached: {asset} ({len(content)} bytes)")
+        else:
+            print(f"  Failed to cache: {asset}")
+
+    # Cache RokCommon assets
+    for asset in rokcommon_assets:
+        fpath = f"RokCommon/web/pages/assets/{asset}"
+        content = _load_template(fpath)
+        if content:
+            cached_count += 1
+            total_size += len(content)
+            print(f"  Cached: RokCommon/{asset} ({len(content)} bytes)")
         else:
             print(f"  Failed: {asset}")
 
@@ -240,9 +260,19 @@ async def handle_client(reader, writer):
 
         # Handle API endpoints via common API handler
         if path.startswith("/api/"):
-            await _handle_api_request(
-                reader, writer, method, headers, path, query_string
-            )
+            # Read POST body here in main handler to avoid double reading
+            body = ""
+            if method == "POST":
+                content_length = int(headers.get("content-length", 0))
+                if content_length > 0:
+                    body_bytes = await reader.read(content_length)
+                    body = (
+                        body_bytes.decode("utf-8")
+                        if isinstance(body_bytes, bytes)
+                        else str(body_bytes)
+                    )
+
+            await _handle_api_request(writer, method, headers, path, query_string, body)
             return
 
         # Handle legacy status endpoint (redirect to API)
@@ -382,22 +412,10 @@ async def _handle_static_assets(writer, path):
             pass
 
 
-async def _handle_api_request(reader, writer, method, headers, path, query_string):
+async def _handle_api_request(writer, method, headers, path, query_string, body=""):
     """Handle API requests via common API handler"""
     try:
-        # Read body for POST requests
-        body = ""
-        if method == "POST":
-            content_length = int(headers.get("content-length", 0))
-            if content_length > 0:
-                body_bytes = await reader.read(content_length)
-                body = (
-                    body_bytes.decode("utf-8")
-                    if isinstance(body_bytes, bytes)
-                    else str(body_bytes)
-                )
-
-        # Create Request object
+        # Create Request object with body already read
         from RokCommon.web.request_response import Request
 
         request = Request(
@@ -620,7 +638,10 @@ async def _keep_alive():
 
 
 def run():
-    loop = asyncio.get_event_loop()
+    # Create a NEW event loop for this thread - critical for threading!
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     loop.create_task(start_web_server())
     loop.create_task(_keep_alive())
 

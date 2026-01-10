@@ -2,7 +2,7 @@
 
 import time
 from machine import Pin, PWM
-from variables.vars_store import load_config, save_config
+from RokCommon.variables.vars_store import get_config_value, save_config_value
 from RokCommon.variables.vehicle_types import VEHICLE_TYPES
 import gc
 
@@ -48,8 +48,7 @@ class Motor:
                 motor_controller_ref, "_find_next_available_motor_num"
             ):
                 # Get current motor assignments to find next available
-                cfg = load_config()
-                motor_numbers = cfg.get("motor_numbers", {})
+                motor_numbers = get_config_value("motor_numbers", {})
                 motor_num = motor_controller_ref._find_next_available_motor_num(
                     motor_numbers
                 )
@@ -179,10 +178,9 @@ class MotorController:
             if n not in MOTOR_PIN_MAP:
                 raise ValueError(f"Invalid motor number: {n}")
         # Update config
-        cfg = load_config()
         # MicroPython: ensure assignments is a plain dict, not a subclass
-        cfg["motor_numbers"] = dict((str(k), int(v)) for k, v in assignments.items())
-        save_config(cfg)
+        motor_numbers = dict((str(k), int(v)) for k, v in assignments.items())
+        save_config_value("motor_numbers", motor_numbers)
         # Deinit all PWM channels before re-instantiating
         self.deinit_all()
         # Re-instantiate the global motor_controller so all references are fresh
@@ -219,8 +217,7 @@ class MotorController:
             m.set_output(direction, power >= 1, mode="function")
 
     def __init__(self):
-        cfg = load_config()
-        vtype = cfg.get("vehicleType")
+        vtype = get_config_value("vehicleType")
         vinfo = next((v for v in VEHICLE_TYPES if v["typeName"] == vtype), None)
         if not vinfo:
             print(
@@ -233,11 +230,11 @@ class MotorController:
                 vinfo = {"axis_motors": [], "motor_functions": []}
 
         # Get custom motor number mapping if present
-        motor_numbers = cfg.get("motor_numbers", {})
+        motor_numbers = get_config_value("motor_numbers", {})
 
         # Axis motors (continuous, axis-assignable)
         self.axis_motors = {}
-        motor_reversed_cfg = cfg.get("motor_reversed", {})
+        motor_reversed_cfg = get_config_value("motor_reversed", {})
 
         # Assign motor numbers to axis motors, preserving existing mappings
         for name in vinfo.get("axis_motors", []):
@@ -279,7 +276,7 @@ class MotorController:
             self.function_controller = None
 
         # Load per-motor min power values from config (if present)
-        motor_min_cfg = cfg.get("motor_min", {})
+        motor_min_cfg = get_config_value("motor_min", {})
         for name, m in self.axis_motors.items():
             try:
                 m.min_power = int(motor_min_cfg.get(name, 40000))
@@ -292,9 +289,8 @@ class MotorController:
                 m.min_power = 40000
 
         # Save updated motor assignments back to config if any were added
-        if motor_numbers != cfg.get("motor_numbers", {}):
-            cfg["motor_numbers"] = motor_numbers
-            save_config(cfg)
+        if motor_numbers != get_config_value("motor_numbers", {}):
+            save_config_value("motor_numbers", motor_numbers)
 
         self.timeout_ms = 400
 

@@ -77,23 +77,27 @@ def handle_post(body, cfg):
     if tag_from_form is not None and tag_from_form != old_tag:
         new_tag = tag_from_form
 
-    cfg["vehicleType"] = new_type
-    cfg["vehicleTag"] = new_tag
-    cfg["vehicleName"] = fields.get("vehicleName", cfg.get("vehicleName"))
-
-    save_config(cfg)
-
-    return cfg, "/admin"
+    save_config_value("vehicleType", new_type)
+    save_config_value("vehicleTag", new_tag)
+    save_config_value(
+        "vehicleName", fields.get("vehicleName", get_config_value("vehicleName"))
+    )
+    return None, "/admin"
 
 
 def handle_get():
-    cfg = load_config()
+    cfg = {
+        "vehicleType": get_config_value("vehicleType"),
+        "vehicleTag": get_config_value("vehicleTag"),
+        "vehicleName": get_config_value("vehicleName"),
+    }
     html = build_admin_page(cfg)
     return "200 OK", "text/html", html
 
 
-from variables.vars_store import load_config, save_config
+from RokCommon.variables.vars_store import get_config_value, save_config_value
 from RokCommon.variables.vehicle_types import VEHICLE_TYPES
+from RokCommon.web.pages.home_page import load_and_process_header
 
 
 # ---------------------------------------------------------
@@ -189,14 +193,39 @@ def build_admin_page(cfg):
         cfg.get("vehicleName") or ""
     )  # Use template caching from web_server module
     try:
-        from web.web_server import _load_template
+        # Load template helper function
+        def _load_template(path):
+            """Load template with fallback paths"""
+            from RokCommon.web.static_assets import load_template
+
+            # For project-specific templates, try relative path first
+            if (
+                "admin_page.html" in path
+                or "testing_page.html" in path
+                or "play_page.html" in path
+            ):
+                content = load_template(path)
+                if content is not None:
+                    return content
+                # Don't try RokCommon path for project-specific templates
+                return None
+
+            # For common templates, try RokCommon path first
+            content = load_template(f"RokCommon/{path}")
+            if content is not None:
+                return content
+            # Fallback to relative path
+            content = load_template(path)
+            if content is not None:
+                return content
+            return None
+
         import gc
 
-        header_nav = _load_template("web/pages/assets/header_nav.html")
+        # Load header navigation using shared function
+        header_nav = load_and_process_header(vehicle_name)
         if not header_nav:
             header_nav = f"<div style='background:#222;color:#fff;padding:12px;text-align:center'>Rokenbok Vehicle Control<br><span style='color:#f9e79f'>{vehicle_name}</span></div>"
-        else:
-            header_nav = header_nav.replace("{{ vehicle_name }}", vehicle_name)
 
         html = _load_template("web/pages/assets/admin_page.html")
         if html:

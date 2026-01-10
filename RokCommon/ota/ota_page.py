@@ -11,6 +11,7 @@ Updated to use unified Request/Response system
 
 from RokCommon.variables.vars_store import get_config_value
 from RokCommon.web import Request, Response, PageHandler
+from RokCommon.web.pages.home_page import load_and_process_header
 import RokCommon.ota.ota_utils as ota
 import os
 import gc
@@ -269,180 +270,16 @@ def build_ota_page():
             html_template = "<!DOCTYPE html><html><head><title>OTA Updates</title></head><body><h1>OTA Updates</h1><p>Template not found</p></body></html>"
 
         # Get configuration values
-        vehicle_tag = get_config_value("vehicleTag", "RokDevice")
-        vehicle_name = get_config_value("vehicleName", vehicle_tag)
+        vehicle_name = get_config_value("vehicleName", "RokDevice")
         project_type = get_config_value("projectType", "unknown")
 
-        # Set project-specific values
-        if project_type == "vehicle":
-            project_name = "RokVehicle"
-            project_folder_label = "RokVehicle or RokCommon Folder"
-            project_upload_warning = "Upload complete RokVehicle or RokCommon folders to update all files at once."
-            github_download_description = "Download the latest RokVehicle and RokCommon code directly from the GitHub repository."
-            github_folder_selection = """
-                <div class="form-group">
-                    <label>📁 Folder:</label>
-                    <select name="folder" class="form-control">
-                        <option value="RokVehicle">RokVehicle</option>
-                        <option value="RokCommon">RokCommon</option>
-                    </select>
-                </div>"""
-            github_download_buttons = """
-                <button type="button" onclick="downloadFromGitHub()" class="button success">⬇️ Download Selected</button>
-                <button type="button" onclick="downloadAllFolders()" class="button success">⬇️ Download All</button>"""
-            ota_specific_styles = ""
-            ota_specific_javascript = """
-        async function downloadAllFolders() {
-            if (!confirm('Download and replace all files from both RokVehicle and RokCommon? This will overwrite existing files.')) {
-                return;
-            }
+        # Load and process header navigation
+        header_nav = load_and_process_header(vehicle_name, project_type)
+        if not header_nav:
+            header_nav = f"<div>Header not found for {vehicle_name}</div>"
 
-            const form = document.getElementById('github-form');
-            const repo = form.querySelector('[name="repo"]').value;
-            const ref = form.querySelector('[name="ref"]').value;
-            const pathFilter = form.querySelector('[name="path_filter"]').value;
-
-            showStatus('Downloading RokVehicle and RokCommon from GitHub...', 'info');
-
-            let successCount = 0;
-            const folders = ['RokVehicle', 'RokCommon'];
-
-            for (const folder of folders) {
-                try {
-                    const formData = new FormData();
-                    formData.set('action', 'github_download');
-                    formData.set('repo', repo);
-                    formData.set('ref', ref);
-                    formData.set('folder', folder);
-                    formData.set('path_filter', pathFilter);
-
-                    const response = await fetch('/ota', { method: 'POST', body: formData });
-                    const result = await response.json();
-
-                    if (result.success) {
-                        successCount++;
-                        showStatus(`Downloaded ${folder}: ${result.message}`, 'success');
-                    } else {
-                        showStatus(`Failed to download ${folder}: ${result.message}`, 'error');
-                    }
-                } catch (error) {
-                    showStatus(`Error downloading ${folder}: ${error.message}`, 'error');
-                }
-
-                // Small delay between downloads
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-
-            if (successCount === folders.length) {
-                setTimeout(() => {
-                    if (confirm('All files updated successfully. Restart device to apply changes?')) {
-                        restartDevice();
-                    }
-                }, 2000);
-            }
-        }"""
-        elif project_type == "vision":
-            project_name = "RokVision"
-            project_folder_label = "RokVision or RokCommon Folder"
-            project_upload_warning = "Upload complete RokVision or RokCommon folders to update all files at once."
-            github_download_description = "Download the latest RokVision and RokCommon code directly from the GitHub repository."
-            github_folder_selection = """
-                <div class="form-group">
-                    <label>📁 Folder:</label>
-                    <select name="folder" class="form-control">
-                        <option value="RokVision">RokVision</option>
-                        <option value="RokCommon">RokCommon</option>
-                    </select>
-                </div>"""
-            github_download_buttons = """
-                <button type="button" onclick="downloadFromGitHub()" class="button success">⬇️ Download Selected</button>
-                <button type="button" onclick="downloadAllFolders()" class="button success">⬇️ Download All</button>"""
-            ota_specific_styles = ""
-            ota_specific_javascript = """
-        async function downloadAllFolders() {
-            if (!confirm('Download and replace all files from both RokVision and RokCommon? This will overwrite existing files.')) {
-                return;
-            }
-
-            const form = document.getElementById('github-form');
-            const repo = form.querySelector('[name="repo"]').value;
-            const ref = form.querySelector('[name="ref"]').value;
-            const pathFilter = form.querySelector('[name="path_filter"]').value;
-
-            showStatus('Downloading RokVision and RokCommon from GitHub...', 'info');
-
-            let successCount = 0;
-            const folders = ['RokVision', 'RokCommon'];
-
-            for (const folder of folders) {
-                try {
-                    const formData = new FormData();
-                    formData.set('action', 'github_download');
-                    formData.set('repo', repo);
-                    formData.set('ref', ref);
-                    formData.set('folder', folder);
-                    formData.set('path_filter', pathFilter);
-
-                    const response = await fetch('/ota', { method: 'POST', body: formData });
-                    const result = await response.json();
-
-                    if (result.success) {
-                        successCount++;
-                        showStatus(`Downloaded ${folder}: ${result.message}`, 'success');
-                    } else {
-                        showStatus(`Failed to download ${folder}: ${result.message}`, 'error');
-                    }
-                } catch (error) {
-                    showStatus(`Error downloading ${folder}: ${error.message}`, 'error');
-                }
-
-                // Small delay between downloads
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-
-            if (successCount === folders.length) {
-                setTimeout(() => {
-                    if (confirm('All files updated successfully. Restart device to apply changes?')) {
-                        restartDevice();
-                    }
-                }, 2000);
-            }
-        }"""
-        else:
-            # Unknown project type fallback
-            project_name = "RokDevice"
-            project_folder_label = "Project Folder"
-            project_upload_warning = (
-                "Upload complete project folders to update all files at once."
-            )
-            github_download_description = (
-                "Download the latest code directly from the GitHub repository."
-            )
-            github_folder_selection = """
-                <div class="form-group">
-                    <label>📁 Folder:</label>
-                    <input type="text" name="folder" class="form-control" value="RokCommon" placeholder="Folder name">
-                </div>"""
-            github_download_buttons = """
-                <button type="button" onclick="downloadFromGitHub()" class="button success">⬇️ Download & Update</button>"""
-            ota_specific_styles = ""
-            ota_specific_javascript = ""
-
-        # Replace template placeholders
-        replacements = {
-            "{{ project_name }}": project_name,
-            "{{ project_folder_label }}": project_folder_label,
-            "{{ project_upload_warning }}": project_upload_warning,
-            "{{ github_download_description }}": github_download_description,
-            "{{ github_folder_selection }}": github_folder_selection,
-            "{{ github_download_buttons }}": github_download_buttons,
-            "{{ ota_specific_styles }}": ota_specific_styles,
-            "{{ ota_specific_javascript }}": ota_specific_javascript,
-        }
-
-        html = html_template
-        for placeholder, value in replacements.items():
-            html = html.replace(placeholder, value)
+        # Simple template replacement - only header needed
+        html = html_template.replace("{{ header_nav }}", header_nav)
 
         return html
 

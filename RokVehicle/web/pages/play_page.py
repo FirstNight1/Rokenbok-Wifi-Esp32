@@ -77,13 +77,13 @@ def handle_get(query_string=None):
 
     # If ?config=1, return JSON config for JS (now includes mapping)
     if query_string and "config=1" in query_string:
-        cam_cfg = cfg.get("camera_ips", {})
+        cam_cfg = get_config_value("camera_ips", {})
         area_ip = cam_cfg.get("area", "")
         fpv_ip = cam_cfg.get("fpv", "")
-        view_mode = cfg.get("view_mode", "area")
-        pip_flip = cfg.get("pip_flip", False)
-        drive_mode = cfg.get("drive_mode", "tank")
-        mapping = cfg.get("controller_mapping", {})
+        view_mode = get_config_value("view_mode", "area")
+        pip_flip = get_config_value("pip_flip", False)
+        drive_mode = get_config_value("drive_mode", "tank")
+        mapping = get_config_value("controller_mapping", {})
         # New: expose axis_motors, motor_functions, functions for dynamic mapping
         axis_motors = info["axis_motors"] if info and "axis_motors" in info else []
         motor_functions = (
@@ -122,18 +122,18 @@ def handle_get(query_string=None):
         header_nav = f"<div style='background:#222;color:#fff;padding:12px;text-align:center'>Rokenbok Vehicle Control<br><span style='color:#f9e79f'>{vehicle_name}</span></div>"
 
     vehicle_type = vtype or "Unknown"
-    vehicle_name = cfg.get("vehicleName") or "Unnamed Vehicle"
+    vehicle_name = get_config_value("vehicleName", "Unnamed Vehicle")
     motors = info.get("motor_map", {}) if info else {}
     axis_map = {name: f"Axis {i+1}" for i, name in enumerate(motors.keys())}
     axis_map_list = "".join(
         [f"<li>{name}: {axis_map[name]}</li>" for name in motors.keys()]
     )
-    cam_cfg = cfg.get("camera_ips", {})
+    cam_cfg = get_config_value("camera_ips", {})
     area_ip = cam_cfg.get("area", "")
     fpv_ip = cam_cfg.get("fpv", "")
-    view_mode = cfg.get("view_mode", "area")
-    pip_flip = cfg.get("pip_flip", False)
-    drive_mode = cfg.get("drive_mode", "tank")
+    view_mode = get_config_value("view_mode", "area")
+    pip_flip = get_config_value("pip_flip", False)
+    drive_mode = get_config_value("drive_mode", "tank")
 
     # Load main HTML from asset file and inject values
     try:
@@ -179,27 +179,29 @@ def handle_post(body, cfg):
         # Expect fields: mapping (dict), drive_mode (str)
         mapping = fields.get("mapping", {})
         drive_mode = fields.get("drive_mode", "tank")
-        cfg["controller_mapping"] = mapping
-        cfg["drive_mode"] = drive_mode
-        save_config(cfg)
-        return (cfg, "/play")
+        from RokCommon.variables.vars_store import save_config_value
+
+        save_config_value("controller_mapping", mapping)
+        save_config_value("drive_mode", drive_mode)
+        return (None, "/play")
 
     # Save camera/view config
     if action == "save_view":
-        cam_cfg = cfg.get("camera_ips", {})
+        cam_cfg = get_config_value("camera_ips", {})
         area_ip = fields.get("area_ip")
         fpv_ip = fields.get("fpv_ip")
         if area_ip is not None:
             cam_cfg["area"] = area_ip
         if fpv_ip is not None:
             cam_cfg["fpv"] = fpv_ip
-        cfg["camera_ips"] = cam_cfg
+        from RokCommon.variables.vars_store import save_config_value
+
+        save_config_value("camera_ips", cam_cfg)
         if "view_mode" in fields:
-            cfg["view_mode"] = fields["view_mode"]
+            save_config_value("view_mode", fields["view_mode"])
         if "pip_flip" in fields:
-            cfg["pip_flip"] = bool(fields["pip_flip"])
-        save_config(cfg)
-        return (cfg, "/play")
+            save_config_value("pip_flip", bool(fields["pip_flip"]))
+        return (None, "/play")
 
     # Return the updated config and redirect to play
-    return (cfg, "/play")
+    return (None, "/play")

@@ -10,7 +10,6 @@
     "static_mask": "",
     "static_gw": "",
     "static_dns": "",
-    "motor_min": {},
     "ota_auto_backup": true,
     "ota_last_update": null,
     "ota_update_count": 0,

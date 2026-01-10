@@ -1,5 +1,8 @@
-from variables.vars_store import load_config, save_config
-from variables.vehicle_types import VEHICLE_TYPES
+from RokCommon.variables.vars_store import get_config_value, save_config_value
+from RokCommon.variables.vehicle_types import VEHICLE_TYPES
+from RokCommon.web.request_response import Request, Response
+from RokCommon.web import PageHandler
+from RokCommon.web.pages.home_page import load_and_process_header
 import random
 
 # Import camera reconfiguration function
@@ -15,7 +18,61 @@ except ImportError:
         return False
 
 
-def handle_post(body, cfg):
+def _valid_vehicle_types():
+    """Return set of valid vehicle type names"""
+    return {t["typeName"] for t in VEHICLE_TYPES}
+
+
+class AdminPageHandler(PageHandler):
+    """Admin page handler using unified Request/Response system"""
+
+    def handle_get(self, request):
+        """Handle GET requests for admin page"""
+        try:
+            cfg = {
+                "vehicleType": get_config_value("vehicleType"),
+                "vehicleTag": get_config_value("vehicleTag"),
+                "vehicleName": get_config_value("vehicleName"),
+                "cam_framesize": get_config_value("cam_framesize", 4),
+                "cam_quality": get_config_value("cam_quality", 85),
+                "cam_contrast": get_config_value("cam_contrast", 0),
+                "cam_brightness": get_config_value("cam_brightness", 0),
+                "cam_saturation": get_config_value("cam_saturation", 0),
+                "cam_vflip": get_config_value("cam_vflip", 0),
+                "cam_hmirror": get_config_value("cam_hmirror", 0),
+                "cam_speffect": get_config_value("cam_speffect", 0),
+                "cam_stream_port": get_config_value("cam_stream_port", 8081),
+            }
+            html = build_admin_page(cfg)
+            return Response.html(html)
+        except Exception as e:
+            print(f"Admin page GET error: {e}")
+            return Response.server_error(f"Admin page error: {e}")
+
+    def handle_post(self, request):
+        """Handle POST requests for admin page"""
+        try:
+            # Use existing handle_post logic
+            result = handle_post_legacy(request.body, {})
+
+            # Return redirect response
+            if result and len(result) > 1:
+                redirect_path = result[1]
+                return Response.redirect(redirect_path)
+            else:
+                return Response.redirect("/admin")
+
+        except Exception as e:
+            print(f"Admin page POST error: {e}")
+            return Response.server_error(f"Admin page POST error: {e}")
+
+
+# Create handler instance
+admin_handler = AdminPageHandler()
+
+
+def handle_post_legacy(body, cfg):
+    """Legacy handle_post function"""
     """Handle POST requests for admin settings"""
     valid_types = _valid_vehicle_types()
 
@@ -28,16 +85,16 @@ def handle_post(body, cfg):
 
     # Cancel → no changes saved
     if "cancel" in fields:
-        return cfg, "/admin"
+        return None, "/admin"
 
     # Validate vehicle type
-    new_type = fields.get("vehicleType", cfg.get("vehicleType"))
+    new_type = fields.get("vehicleType", get_config_value("vehicleType"))
     if new_type not in valid_types:
         print("⚠️ Invalid vehicleType received:", new_type)
-        return cfg, "/admin"
+        return None, "/admin"
 
-    old_type = cfg.get("vehicleType")
-    old_tag = cfg.get("vehicleTag", "")
+    old_type = get_config_value("vehicleType")
+    old_tag = get_config_value("vehicleTag", "")
 
     # Find tagName for old and new type
     old_type_obj = next((t for t in VEHICLE_TYPES if t["typeName"] == old_type), None)
@@ -74,28 +131,43 @@ def handle_post(body, cfg):
         new_tag = tag_from_form
 
     # Save settings
-    cfg["vehicleType"] = new_type
-    cfg["vehicleTag"] = new_tag
-    cfg["vehicleName"] = fields.get("vehicleName", cfg.get("vehicleName"))
+    save_config_value("vehicleType", new_type)
+    save_config_value("vehicleTag", new_tag)
+    save_config_value(
+        "vehicleName", fields.get("vehicleName", get_config_value("vehicleName"))
+    )
 
     # Camera settings
-    cfg["cam_framesize"] = int(fields.get("cam_framesize", cfg.get("cam_framesize", 4)))
-    cfg["cam_quality"] = int(fields.get("cam_quality", cfg.get("cam_quality", 85)))
-    cfg["cam_contrast"] = int(fields.get("cam_contrast", cfg.get("cam_contrast", 0)))
-    cfg["cam_brightness"] = int(
-        fields.get("cam_brightness", cfg.get("cam_brightness", 0))
+    save_config_value(
+        "cam_framesize",
+        int(fields.get("cam_framesize", get_config_value("cam_framesize", 4))),
     )
-    cfg["cam_saturation"] = int(
-        fields.get("cam_saturation", cfg.get("cam_saturation", 0))
+    save_config_value(
+        "cam_quality",
+        int(fields.get("cam_quality", get_config_value("cam_quality", 85))),
     )
-    cfg["cam_vflip"] = 1 if "cam_vflip" in fields else 0
-    cfg["cam_hmirror"] = 1 if "cam_hmirror" in fields else 0
-    cfg["cam_speffect"] = int(fields.get("cam_speffect", cfg.get("cam_speffect", 0)))
-    cfg["cam_stream_port"] = int(
-        fields.get("cam_stream_port", cfg.get("cam_stream_port", 8081))
+    save_config_value(
+        "cam_contrast",
+        int(fields.get("cam_contrast", get_config_value("cam_contrast", 0))),
     )
-
-    save_config(cfg)
+    save_config_value(
+        "cam_brightness",
+        int(fields.get("cam_brightness", get_config_value("cam_brightness", 0))),
+    )
+    save_config_value(
+        "cam_saturation",
+        int(fields.get("cam_saturation", get_config_value("cam_saturation", 0))),
+    )
+    save_config_value("cam_vflip", 1 if "cam_vflip" in fields else 0)
+    save_config_value("cam_hmirror", 1 if "cam_hmirror" in fields else 0)
+    save_config_value(
+        "cam_speffect",
+        int(fields.get("cam_speffect", get_config_value("cam_speffect", 0))),
+    )
+    save_config_value(
+        "cam_stream_port",
+        int(fields.get("cam_stream_port", get_config_value("cam_stream_port", 8081))),
+    )
 
     # Trigger camera reconfiguration with new settings
     if camera_available:
@@ -104,11 +176,25 @@ def handle_post(body, cfg):
         except Exception as e:
             print(f"Camera reconfiguration failed: {e}")
 
-    return cfg, "/admin"
+    return None, "/admin"
 
 
 def handle_get():
-    cfg = load_config()
+    """Legacy handle_get for backward compatibility"""
+    cfg = {
+        "vehicleType": get_config_value("vehicleType"),
+        "vehicleTag": get_config_value("vehicleTag"),
+        "vehicleName": get_config_value("vehicleName"),
+        "cam_framesize": get_config_value("cam_framesize", 4),
+        "cam_quality": get_config_value("cam_quality", 85),
+        "cam_contrast": get_config_value("cam_contrast", 0),
+        "cam_brightness": get_config_value("cam_brightness", 0),
+        "cam_saturation": get_config_value("cam_saturation", 0),
+        "cam_vflip": get_config_value("cam_vflip", 0),
+        "cam_hmirror": get_config_value("cam_hmirror", 0),
+        "cam_speffect": get_config_value("cam_speffect", 0),
+        "cam_stream_port": get_config_value("cam_stream_port", 8081),
+    }
     html = build_admin_page(cfg)
     return "200 OK", "text/html", html
 
@@ -118,19 +204,47 @@ def _valid_vehicle_types():
     return {t["typeName"] for t in VEHICLE_TYPES}
 
 
+# For backwards compatibility, make this module callable as both:
+# - admin_handler (unified interface)
+# - admin_page module with handle_get/handle_post functions (legacy interface)
+handle_get = admin_handler.handle_get
+handle_post = admin_handler.handle_post
+
+
 def build_admin_page(cfg):
     """Build the admin page HTML with current configuration"""
     try:
-        # Use template caching - import here to avoid circular import
-        from web.web_server import _load_template
-
-        # Load header navigation
-        header_nav = _load_template("web/pages/assets/header_nav.html")
+        # Load header navigation using shared function
+        header_nav = load_and_process_header(cfg.get("vehicleName", ""))
         if not header_nav:
             header_nav = "<div>Header not found</div>"
-        header_nav = header_nav.replace(
-            "{{ vehicle_name }}", cfg.get("vehicleName", "") or ""
-        )
+
+        # Load template helper function
+        def _load_template(path):
+            """Load template with fallback paths"""
+            from RokCommon.web.static_assets import load_template
+
+            # For project-specific templates, try relative path first
+            if (
+                "admin_page.html" in path
+                or "testing_page.html" in path
+                or "play_page.html" in path
+            ):
+                content = load_template(path)
+                if content is not None:
+                    return content
+                # Don't try RokCommon path for project-specific templates
+                return None
+
+            # For common templates, try RokCommon path first
+            content = load_template(f"RokCommon/{path}")
+            if content is not None:
+                return content
+            # Fallback to relative path
+            content = load_template(path)
+            if content is not None:
+                return content
+            return None
 
         # Build vehicle type options
         type_options = "".join(

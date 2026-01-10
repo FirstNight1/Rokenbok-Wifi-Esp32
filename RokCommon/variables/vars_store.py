@@ -5,6 +5,7 @@ import random
 # Variables
 CONFIG_DIR = "variables"
 CONFIG_FILE = "config.json"
+CONFIG_DEFAULTS_FILE = "config_defaults.json"
 # Cache for the loaded configuration
 _cached_config = None
 
@@ -34,34 +35,54 @@ def minimal_default_config():
 # Called once at startup from main.py
 # ---------------------------------------------------------
 def init_config():
+    global _cached_config
+
     # Check if config exists at variables/config.json
     config_dir = CONFIG_DIR
     config_file = f"{CONFIG_DIR}/{CONFIG_FILE}"
+    config_defaults_file = f"{CONFIG_DIR}/{CONFIG_DEFAULTS_FILE}"
+
     # Ensure directory exists
     try:
-        if not os.path.exists(config_dir):
+        try:
+            os.stat(config_dir)
+        except OSError:
             os.makedirs(config_dir)
-            save_default_config()
     except Exception as e:
         print(f"Config directory creation failed, fatal error: {e}")
         return None
-    # Ensure file exists
+
+    # Try to load existing runtime config first
     try:
-        if not os.path.exists(config_file):
-            save_default_config()
+        try:
+            os.stat(config_file)
+            load_config()
+            if _cached_config:
+                print(f"Loaded runtime config from {config_file}")
+        except OSError:
+            # Runtime config doesn't exist, try to load project defaults
+            try:
+                os.stat(config_defaults_file)
+                load_config_defaults()
+                if _cached_config:
+                    print(f"Loaded project defaults from {config_defaults_file}")
+                    # Save the defaults as runtime config
+                    save_config(_cached_config)
+            except OSError:
+                # No defaults file either, use hardcoded minimal config
+                print("No config files found, creating minimal default config")
+                save_default_config()
     except Exception as e:
-        print(f"Config file creation failed, fatal error: {e}")
+        print(f"Config initialization failed, fatal error: {e}")
         return None
 
-    # Load configuration
-    cfg = load_config()
-
-    # if cfg has a default Vehicle Tag, generate a new unique one
+    # if cached config has a default Vehicle Tag, generate a new unique one
     tag = get_config_value("vehicleTag", "")
     if tag.endswith("DEFAULT"):
         tag = tag.replace("DEFAULT", f"{random_tag()}")
         save_config_value("vehicleTag", tag)
-    return cfg
+
+    return _cached_config
 
 
 # ---------------------------------------------------------
@@ -86,6 +107,24 @@ def load_config():
             _cached_config = json.load(f)
     except Exception as e:
         print(f"Config load failed: {e}")
+        _cached_config = None
+
+    return _cached_config
+
+
+# ---------------------------------------------------------
+# Load default configuration from project defaults file
+# ---------------------------------------------------------
+def load_config_defaults():
+    global _cached_config
+    config_defaults_file = f"{CONFIG_DIR}/{CONFIG_DEFAULTS_FILE}"
+
+    # Try to load project defaults
+    try:
+        with open(config_defaults_file, "r") as f:
+            _cached_config = json.load(f)
+    except Exception as e:
+        print(f"Config defaults load failed: {e}")
         _cached_config = None
 
     return _cached_config

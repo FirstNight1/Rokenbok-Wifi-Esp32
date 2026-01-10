@@ -3,18 +3,18 @@ import time
 time.sleep(2)  # allow USB enumeration before WiFi touches peripherals
 
 import web.web_server
-from variables.vars_store import load_config
+from RokCommon.variables.vars_store import init_config, get_config_value
 from RokCommon.networking.wifi_manager import connect_to_wifi
 from control.led_status import init_led_status, startup_blink, set_wifi_status
 
 # Start UDP listener (non-blocking). Module auto-starts its thread on import.
 import networking.udp_listener
 
-cfg = load_config()
+# Initialize configuration first
+cfg = init_config()
 
-# Initialize LED and do startup blink
-led_pin = cfg.get("ledPin", 9)
-led_enabled = cfg.get("ledEnabled", True)
+led_pin = get_config_value("ledPin", 9)
+led_enabled = get_config_value("ledEnabled", True)
 init_led_status(led_pin)
 
 if led_enabled:

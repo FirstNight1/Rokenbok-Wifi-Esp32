@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ project_name }} OTA Updates</title>
+    <title>OTA Updates</title>
     <link rel="icon" href="/assets/favicon.ico">
     <style>
         body {
@@ -144,28 +144,6 @@
             font-size: 0.9em;
         }
 
-        .backup-info {
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 10px 0;
-        }
-
-        .backup-info h4 {
-            margin: 0 0 10px 0;
-            color: #495057;
-        }
-
-        .backup-item {
-            padding: 5px 0;
-            border-bottom: 1px solid #e9ecef;
-        }
-
-        .backup-item:last-child {
-            border-bottom: none;
-        }
-
         #status {
             min-height: 50px;
         }
@@ -188,30 +166,38 @@
 </head>
 
 <body>
+    {{ header_nav }}
     <div class="container">
-        <div class="section">
-            <h2>🔧 {{ project_name }} Over-The-Air Updates</h2>
-            <div id="status"></div>
-        </div>
+        <div id="status"></div>
 
         <!-- File Upload Section -->
         <div class="section">
             <h2>📂 Upload Files</h2>
             <p class="text-muted">
-                Upload complete {{ project_name }} folders or download latest updates from GitHub
+                Upload complete project folders or download latest updates from GitHub
             </p>
 
             <form id="upload-form" enctype="multipart/form-data">
                 <div class="form-group">
                     <div class="warning-text">
                         <strong>⚠️ Warning:</strong>
-                        {{ project_upload_warning }}
+                        Upload complete project folders to update all files at once.
                     </div>
                     <div class="form-group">
-                        <label>📂 Select {{ project_folder_label }}:</label>
+                        <label>📂 Select Project Folder:</label>
                         <input type="file" name="files" class="form-control" webkitdirectory directory multiple required
                             accept=".py,.txt,.html,.css,.js,.json,.md">
                     </div>
+                    <label>
+                        <input type="checkbox" id="clear_folder" name="clear_folder" value="true">
+                        Clear folder contents before upload (use when files have been deleted)
+                    </label>
+                    <br><br>
+                    <label>
+                        <input type="checkbox" id="preserve_config" name="preserve_config" value="true" checked>
+                        Preserve config.json file
+                    </label>
+                    <br><br>
                     <button type="button" onclick="uploadFiles()" class="button success">⬆️ Upload Files</button>
                     <button type="button" onclick="restartDevice()" class="button warning">🔄 Restart Device</button>
                 </div>
@@ -222,7 +208,7 @@
         <div class="section">
             <h2>⬇️ Download from GitHub</h2>
             <p class="text-muted">
-                {{ github_download_description }}
+                Download the latest code directly from the GitHub repository.
             </p>
 
             <form id="github-form">
@@ -238,7 +224,10 @@
                     </div>
                 </div>
 
-                {{ github_folder_selection }}
+                <div class="form-group">
+                    <label>📁 Folder:</label>
+                    <input type="text" name="folder" class="form-control" value="RokCommon" placeholder="Folder name">
+                </div>
 
                 <div class="form-group">
                     <label>🔍 Path Filter (Optional):</label>
@@ -246,8 +235,20 @@
                         placeholder="*.py (optional filter)">
                 </div>
 
+                <label>
+                    <input type="checkbox" id="clear_folder_github" name="clear_folder" value="true">
+                    Clear folder contents before download
+                </label>
+                <br><br>
+                <label>
+                    <input type="checkbox" id="preserve_config_github" name="preserve_config" value="true" checked>
+                    Preserve config.json file
+                </label>
+                <br><br>
+
                 <div style="margin-top: 15px;">
-                    {{ github_download_buttons }}
+                    <button type="button" onclick="downloadFromGitHub()" class="button success">⬇️ Download &
+                        Update</button>
                 </div>
             </form>
         </div>
@@ -259,49 +260,6 @@
                 <div class="progress-bar" id="progress-bar" style="width: 0%">0%</div>
             </div>
             <div id="progress-details"></div>
-        </div>
-
-        <!-- Backup Management -->
-        <div class="section">
-            <h2>💾 Backup Management</h2>
-            <p class="text-muted">Manage automatic backups created during updates</p>
-
-            <div class="backup-info">
-                <h4>Automatic Backup Settings</h4>
-                <p><strong>Status:</strong> <span id="backup-status">Loading...</span></p>
-                <p><strong>Last Backup:</strong> <span id="last-backup">Loading...</span></p>
-                <p><strong>Total Backups:</strong> <span id="backup-count">Loading...</span></p>
-            </div>
-
-            <div style="margin-top: 15px;">
-                <button type="button" onclick="toggleAutoBackup()" class="button" id="backup-toggle-btn">
-                    Toggle Auto Backup
-                </button>
-                <button type="button" onclick="createManualBackup()" class="button success">
-                    📁 Create Manual Backup
-                </button>
-                <button type="button" onclick="listBackups()" class="button">
-                    📋 List All Backups
-                </button>
-                <button type="button" onclick="clearOldBackups()" class="button warning">
-                    🗑️ Clear Old Backups
-                </button>
-            </div>
-
-            <div id="backup-list" style="margin-top: 15px;"></div>
-        </div>
-
-        <!-- System Information -->
-        <div class="section">
-            <h2>ℹ️ System Information</h2>
-            <div id="system-info">
-                <p><strong>Device:</strong> <span id="device-name">Loading...</span></p>
-                <p><strong>Free Memory:</strong> <span id="free-memory">Loading...</span></p>
-                <p><strong>Flash Size:</strong> <span id="flash-size">Loading...</span></p>
-                <p><strong>Uptime:</strong> <span id="uptime">Loading...</span></p>
-                <p><strong>Last Update:</strong> <span id="last-update">Loading...</span></p>
-            </div>
-            <button type="button" onclick="refreshSystemInfo()" class="button">🔄 Refresh Info</button>
         </div>
     </div>
 

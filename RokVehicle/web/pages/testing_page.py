@@ -2,6 +2,7 @@
 
 from RokCommon.variables.vars_store import get_config_value
 from RokCommon.variables.vehicle_types import VEHICLE_TYPES
+from RokCommon.web.pages.home_page import load_and_process_header
 import json
 
 
@@ -31,8 +32,8 @@ def handle_get():
     if info:
         motor_names.extend(info.get("axis_motors", []))
         motor_names.extend(info.get("motor_functions", []))
-    motor_min_cfg = get_config_value("motor_min") or {}
-    motor_reversed_cfg = get_config_value("motor_reversed") or {}
+    motor_min_cfg = get_config_value("motor_min", {})
+    motor_reversed_cfg = get_config_value("motor_reversed", {})
     motor_html = ""
     # Determine which motors are axis and which are function
     axis_motors = set(info.get("axis_motors", [])) if info else set()
@@ -92,10 +93,12 @@ def handle_get():
 
     # Load header/nav HTML and inject vehicle_name
     try:
-        with open("web/pages/assets/header_nav.html", "r") as f:
-            header_nav = f.read().replace("{{ vehicle_name }}", vehicle_name)
-    except Exception:
-        header_nav = f"<div style='background:#222;color:#fff;padding:12px;text-align:center'>Rokenbok Vehicle Control<br><span style='color:#f9e79f'>{vehicle_name}</span></div>"
+        # Load header navigation using shared function
+        header_nav = load_and_process_header(vehicle_name)
+        if not header_nav:
+            raise Exception("Header template not found")
+    except Exception as e:
+        header_nav = f"<div style='background:#222;color:#fff;padding:12px;text-align:center'>Rokenbok Vehicle Control<br><span style='color:#f9e79f'>{vehicle_name or 'Unknown'}</span></div>"
 
     # Inject function motor list for JS
     function_motor_list = []
@@ -105,14 +108,42 @@ def handle_get():
         f"<script>window.functionMotors = {json.dumps(function_motor_list)};</script>"
     )
     try:
-        with open("web/pages/assets/testing_page.html", "r") as f:
-            html = f.read()
-        html = html.replace("{{ header_nav }}", header_nav)
-        html = html.replace("{{ vtype }}", vtype)
-        html = html.replace("{{ motor_html }}", motor_html)
+        # Load template helper function
+        def _load_template(path):
+            """Load template with fallback paths"""
+            from RokCommon.web.static_assets import load_template
+
+            # For project-specific templates, try relative path first
+            if (
+                "admin_page.html" in path
+                or "testing_page.html" in path
+                or "play_page.html" in path
+            ):
+                content = load_template(path)
+                if content is not None:
+                    return content
+                # Don't try RokCommon path for project-specific templates
+                return None
+
+            # For common templates, try RokCommon path first
+            content = load_template(f"RokCommon/{path}")
+            if content is not None:
+                return content
+            # Fallback to relative path
+            content = load_template(path)
+            if content is not None:
+                return content
+            return None
+
+        html = _load_template("web/pages/assets/testing_page.html")
+        if html is None:
+            raise Exception("Testing page template is None")
+        html = html.replace("{{ header_nav }}", header_nav or "")
+        html = html.replace("{{ vtype }}", vtype or "")
+        html = html.replace("{{ motor_html }}", motor_html or "")
         html = html.replace("</body>", function_motor_js + "</body>")
     except Exception as e:
-        html = f"<html><body><h2>Error loading testing page: {e}</h2></body></html>"
+        html = f"<html><body><h2>Error loading testing page: {e}</h2><p>vehicle_name: {vehicle_name}</p><p>vtype: {vtype}</p></body></html>"
 
     # MUST return (status, content_type, html)
     return ("200 OK", "text/html", html)
@@ -161,28 +192,31 @@ def handle_post(body, cfg):
         except Exception:
             minv = 40000
         # Directly update config
-        from RokCommon.variables.vars_store import update_config_value
-        mm = get_config_value("motor_min") or {}
+        from RokCommon.variables.vars_store import save_config_value
+
+        mm = get_config_value("motor_min", {})
         if not isinstance(mm, dict):
             mm = {}
         mm[name] = minv
-        update_config_value("motor_min", mm)
+        save_config_value("motor_min", mm)
         updated = True
     elif action == "toggle_reversed":
         name = fields.get("name")
         # Toggle the current value
-        from RokCommon.variables.vars_store import update_config_value
-        mr = get_config_value("motor_reversed") or {}
+        from RokCommon.variables.vars_store import save_config_value
+
+        mr = get_config_value("motor_reversed", {})
         if not isinstance(mr, dict):
             mr = {}
         current = bool(mr.get(name, False))
         new_val = not current
         mr[name] = new_val
-        update_config_value("motor_reversed", mr)
+        save_config_value("motor_reversed", mr)
         updated = True
     # Reload config to reflect changes
     if updated:
         # Re-instantiate motor_controller to pick up new config
         import control.motor_controller as mc_mod
+
         mc_mod.motor_controller = mc_mod.MotorController()
     return (None, "/testing")
