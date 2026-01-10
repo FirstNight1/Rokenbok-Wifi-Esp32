@@ -461,13 +461,10 @@ async def handle_client(reader, writer):
 
 
 async def start_web_server():
-    """Start the web server and keep it running"""
+    """Start the web server and return the server object"""
     server = await asyncio.start_server(handle_client, "0.0.0.0", 80)
     print("Web server started on port 80")
-
-    # Keep the server running indefinitely - MicroPython style
-    while True:
-        await asyncio.sleep(1)
+    return server
 
 
 def run():

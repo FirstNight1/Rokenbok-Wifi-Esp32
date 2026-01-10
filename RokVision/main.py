@@ -41,14 +41,10 @@ async def main():
 
         print("System ready — web server and camera stream running concurrently.")
 
-        # Keep both running - the server and camera stream
-        try:
-            await asyncio.gather(camera_task, return_exceptions=True)
-        finally:
-            # Clean shutdown
-            if web_server:
-                web_server.close()
-                await web_server.wait_closed()
+        # Keep both running - just wait indefinitely
+        # Both servers will run until the system is shut down
+        while True:
+            await asyncio.sleep(60)  # Check every minute
 
     except Exception as e:
         print(f"System error: {e}")
@@ -69,5 +65,3 @@ def run_asyncio_thread():
 
 
 _thread.start_new_thread(run_asyncio_thread, ())
-
-print("Main thread is free. REPL should remain responsive.")

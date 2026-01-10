@@ -131,6 +131,8 @@ class OTAPageHandler(PageHandler):
 
             if action == "github_download":
                 return self.handle_github_download(request)
+            elif action == "github_preview":
+                return self.handle_github_preview(request)
             elif action == "restart":
                 return self.handle_restart(request)
             elif action == "backup":
@@ -170,6 +172,32 @@ class OTAPageHandler(PageHandler):
         except Exception as e:
             return Response.json_error(
                 f"GitHub download failed: {str(e)}", status="500 Internal Server Error"
+            )
+
+    def handle_github_preview(self, request):
+        """Handle GitHub preview request"""
+        try:
+            repo = request.get_form("repo", ota.DEFAULT_GITHUB_REPO).strip()
+            branch = request.get_form("branch", ota.DEFAULT_GITHUB_BRANCH).strip()
+            folder = request.get_form("folder", "").strip()
+
+            if not repo:
+                return Response.json_error("Repository name is required")
+
+            # Perform GitHub preview (dry run)
+            success, result = ota.sync_from_github(repo, branch, folder, dry_run=True)
+
+            if success:
+                return Response.json_success(
+                    f"Preview: {len(result.get('would_download', []))} files would be downloaded",
+                    details=result,
+                )
+            else:
+                return Response.json_error(result, status="500 Internal Server Error")
+
+        except Exception as e:
+            return Response.json_error(
+                f"GitHub preview failed: {str(e)}", status="500 Internal Server Error"
             )
 
     def handle_restart(self, request):
