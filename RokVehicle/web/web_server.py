@@ -5,7 +5,7 @@ from web.pages import (
     testing_page,
     play_page,
 )
-from RokCommon.ota.ota_page import ota_handler
+from RokCommon.ota.simple_ota import simple_ota_handler
 from RokCommon.web import handle_request, create_routes_from_modules
 from RokCommon.web.pages import wifi_page, home_page
 from RokCommon.web.api_handler import create_api_handler
@@ -40,7 +40,7 @@ ROUTES = {
     "/admin": admin_page,
     "/testing": testing_page,
     "/play": play_page,
-    "/ota": ota_handler,  # Multi-step OTA system
+    "/ota": simple_ota_handler,  # Simple work-in-progress message
 }
 
 
@@ -120,7 +120,6 @@ async def precache_critical_assets():
 
     # RokCommon shared assets
     rokcommon_assets = [
-        "ota_page.html",  # OTA update page
         "home_page.html",  # Home page
         "wifi_page.html",  # WiFi configuration page
         "header_nav.html",  # Navigation header

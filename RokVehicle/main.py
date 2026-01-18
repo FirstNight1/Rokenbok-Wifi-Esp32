@@ -42,4 +42,4 @@ def start_server_thread():
 
 start_server_thread()
 
-print("System ready — async web server running in background.")
+print("System ready — async server running in background.")

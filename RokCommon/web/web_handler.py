@@ -169,7 +169,6 @@ class UnifiedWebServer:
         if self.server:
             self.server.close()
             await self.server.wait_closed()
-            print("Web server stopped")
 
 
 def create_routes_from_modules(**modules):

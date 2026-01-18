@@ -94,11 +94,24 @@
                         });
                         // Stop camera stream when navigating away
                         function stopStream() {
-                            fetch('/api/stop_stream', { method: 'POST' });
+                            try {
+                                fetch('/api/stop_stream', { method: 'POST' }).catch(() => {});
+                            } catch(e) {}
                         }
+                        
+                        // Multiple ways to detect navigation/exit
                         window.addEventListener('beforeunload', stopStream);
+                        window.addEventListener('pagehide', stopStream);
                         document.addEventListener('visibilitychange', function () {
                             if (document.visibilityState === 'hidden') {
+                                stopStream();
+                            }
+                        });
+                        
+                        // Stop stream when clicking navigation links
+                        document.addEventListener('click', function(e) {
+                            const link = e.target.closest('a');
+                            if (link && link.href && !link.href.includes('#') && !link.target) {
                                 stopStream();
                             }
                         });

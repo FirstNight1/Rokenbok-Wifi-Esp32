@@ -25,6 +25,10 @@ except ImportError as e:
 cam_instance = None
 jpeg_encoder = None
 
+# Stream connection tracking
+active_streams = set()
+stream_server = None
+
 # Frame size mapping
 FRAME_SIZES = {
     0: FrameSize.QQVGA,  # 160x120
@@ -53,41 +57,34 @@ def init_camera():
     global cam_instance, jpeg_encoder
 
     if not camera_available:
-        print("Camera/JPEG not available")
         return False
 
     # If camera is already initialized, return success
     if cam_instance is not None:
-        print("Camera already initialized")
         return True
 
-    # Try to cleanup any existing camera instance first
+    # Minimal cleanup
     try:
         import gc
-
-        gc.collect()  # Force garbage collection
+        gc.collect()
     except:
         pass
-
 
     try:
         from RokCommon.variables.vars_store import get_config_value
 
-        # Get camera settings from config (no auto-detection)
+        # Get camera settings from config
         frame_size_id = get_config_value("cam_framesize", 5)  # Default CIF
-        quality = get_config_value("cam_quality", 85)  # Default 85
-        pixel_format = get_config_value("cam_pixel_format", "RGB565")  # Default RGB565
+        quality = get_config_value("cam_quality", 85)
+        pixel_format = get_config_value("cam_pixel_format", "RGB565")
 
-        # Ensure frame size is reasonable for streaming (not QXGA)
+        # Ensure frame size is reasonable for streaming
         if frame_size_id == 8:  # QXGA is too large for streaming
             frame_size_id = 6  # Use VGA instead
-            print("QXGA not suitable for streaming, using VGA")
 
         # Map frame size
         frame_size = FRAME_SIZES.get(frame_size_id, FrameSize.CIF)
         width, height = FRAME_DIMENSIONS.get(frame_size_id, (400, 296))
-
-        print(f"Initializing camera: {width}x{height}, quality={quality}, pixel_format={pixel_format}")
 
         # Select pixel format enum
         if pixel_format == "JPEG":
@@ -98,16 +95,30 @@ def init_camera():
         cam_instance = Camera(
             pixel_format=pixel_format_enum,
             frame_size=frame_size,
-            fb_count=2,  # Double buffer
+            fb_count=2,  # MicroPython framebuffer limit
         )
 
-        # Test capture to ensure camera is working
-        test_frame = cam_instance.capture()
-        if not test_frame:
-            raise Exception("Camera test capture failed")
-        print(f"Camera test successful - captured {len(test_frame)} bytes")
+        # ESP32S3 camera warmup sequence - capture and discard several frames
+        # This prevents the initial corrupted/oversized frames that cause DMA overflow
+        for warmup_frame in range(5):
+            try:
+                warmup_capture = cam_instance.capture()
+                # Discard warmup frames - they're often corrupted on ESP32S3
+                del warmup_capture
+                import time
+                time.sleep_ms(50)  # Brief pause between warmup captures
+            except:
+                pass
+        
+        # Final test capture with validation
+        for _ in range(3):  # Try up to 3 times
+            test_frame = cam_instance.capture()
+            if test_frame and len(test_frame) > 100:  # Ensure frame has data
+                break
+        else:
+            raise Exception("Camera test capture failed after warmup and 3 attempts")
 
-        # Apply camera settings from config
+        # Apply camera settings
         apply_camera_settings()
 
         # Only use software JPEG encoder if not native JPEG
@@ -115,14 +126,11 @@ def init_camera():
             jpeg_encoder = jpeg.Encoder(
                 width=width, height=height, pixel_format="RGB565_BE", quality=quality
             )
-            print("Camera and software JPEG encoder initialized successfully")
         else:
             jpeg_encoder = None
-            print("Camera initialized in native JPEG mode (hardware JPEG)")
         return True
 
-    except Exception as e:
-        print(f"Camera initialization failed: {e}")
+    except Exception:
         cam_instance = None
         jpeg_encoder = None
         return False
@@ -149,9 +157,8 @@ def apply_camera_settings():
         cam_instance.hmirror = hmirror
         cam_instance.special_effect = special_effect
 
-        print("Camera settings applied")
-    except Exception as e:
-        print(f"Failed to apply camera settings: {e}")
+    except Exception:
+        pass
 
 
 def reconfigure_camera():
@@ -159,50 +166,69 @@ def reconfigure_camera():
     global cam_instance, jpeg_encoder
 
     try:
-        print("Reconfiguring camera...")
-
         # Clean deinit of existing camera and encoder
         if cam_instance:
             try:
                 cam_instance.deinit()
-            except Exception as e:
-                print(f"Camera deinit warning: {e}")
+            except Exception:
+                pass
             cam_instance = None
 
         if jpeg_encoder:
             jpeg_encoder = None
 
-        # Force garbage collection
+        # Force garbage collection and brief pause
         try:
             import gc
-
             gc.collect()
+            import uasyncio as asyncio
+            # Brief pause to let hardware reset
+            import time
+            time.sleep_ms(100)
         except:
             pass
 
         # Reinitialize everything from scratch
         return init_camera()
 
-    except Exception as e:
-        print(f"Camera reconfiguration failed: {e}")
-        import sys
-
-        sys.print_exception(e)
+    except Exception:
         return False
+
+
+def stop_active_streams():
+    """Stop all active stream connections gracefully"""
+    global active_streams
+    
+    # Create a copy to avoid modification during iteration
+    streams_to_close = list(active_streams)
+    active_streams.clear()
+    
+    # Close connections
+    for writer in streams_to_close:
+        try:
+            if hasattr(writer, 'aclose'):
+                writer.aclose()
+        except Exception:
+            pass
 
 
 async def stream_handler(reader, writer):
     """Handle MJPEG stream requests"""
-    global cam_instance, jpeg_encoder
+    global cam_instance, jpeg_encoder, active_streams
+
+    # Add this connection to active streams
+    active_streams.add(writer)
 
     # Initialize camera if not done
     if not cam_instance and camera_available:
         if not init_camera():
             await _send_error(writer, "Camera initialization failed")
+            active_streams.discard(writer)
             return
 
     if not cam_instance:
         await _send_error(writer, "Camera not available")
+        active_streams.discard(writer)
         return
 
     # Send MJPEG headers
@@ -214,48 +240,98 @@ async def stream_handler(reader, writer):
     )
     await writer.drain()
 
-    print("Starting JPEG stream")
-
     try:
-        while True:
+        # Fixed frame delay (ms) for FPS cap
+        import uasyncio as asyncio
+        frame_delay_ms = 40  # 40ms delay (~25 FPS)
+
+        # Calculate expected maximum frame size for DMA overflow prevention
+        # ESP32S3 with PSRAM can have issues with oversized JPEG frames
+        expected_frame_size = width * height // 4  # Conservative estimate for JPEG
+        max_allowed_frame_size = expected_frame_size * 2  # 2x safety margin
+        
+        import gc
+        frame_count = 0
+        failed_frames = 0
+        oversized_frames = 0
+        
+        while writer in active_streams:
             try:
-                # Capture frame
+                # Capture frame with validation
                 frame = cam_instance.capture()
-                if not frame:
-                    await asyncio.sleep(0.05)
+                if not frame or len(frame) < 100:  # Invalid/empty frame
+                    failed_frames += 1
+                    if failed_frames > 10:  # Too many failures, reinit camera
+                        if not init_camera():
+                            break
+                        failed_frames = 0
+                        oversized_frames = 0  # Reset oversized counter too
+                    await asyncio.sleep_ms(20)  # Longer pause for recovery
+                    continue
+                
+                # Check for oversized frames (ESP32S3 DMA overflow prevention)
+                if len(frame) > max_allowed_frame_size:
+                    oversized_frames += 1
+                    if oversized_frames > 3:  # Too many oversized frames, reinit
+                        if not init_camera():
+                            break
+                        failed_frames = 0
+                        oversized_frames = 0
+                    continue  # Skip this oversized frame
+                
+                failed_frames = 0  # Reset failure counter on success
+                frame_count += 1
+
+                # Encode frame (handle encoding failures)
+                try:
+                    if jpeg_encoder:
+                        jpeg_frame = jpeg_encoder.encode(frame)
+                        if not jpeg_frame or len(jpeg_frame) < 50:  # Invalid JPEG
+                            continue
+                    else:
+                        jpeg_frame = frame
+                except Exception:
+                    # Encoder failed, skip this frame
                     continue
 
-                # Encode to JPEG (camera already provides JPEG!)
-                if jpeg_encoder:
-                    # Fallback software encoding (shouldn't happen with native JPEG)
-                    jpeg_frame = jpeg_encoder.encode(frame)
-                else:
-                    # Native JPEG from camera hardware - just use the frame directly
-                    jpeg_frame = frame
+                # Send frame as single write operation
+                frame_header = f"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {len(jpeg_frame)}\r\n\r\n".encode()
+                writer.write(frame_header + jpeg_frame + b"\r\n")
 
-                # Send frame
-                writer.write(b"--frame\r\n")
-                writer.write(b"Content-Type: image/jpeg\r\n")
-                writer.write(f"Content-Length: {len(jpeg_frame)}\r\n\r\n".encode())
-                writer.write(jpeg_frame)
-                writer.write(b"\r\n")
-                await writer.drain()
+                # Drain with timeout
+                try:
+                    await asyncio.wait_for(writer.drain(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    # Skip this drain but continue
+                    pass
+                except Exception:
+                    # Connection error, exit
+                    break
 
-                # No delay - let camera/network determine actual FPS
+                # Less frequent GC (every 20 frames) to reduce stuttering on ESP32S3
+                if frame_count % 20 == 0:
+                    gc.collect()
 
-            except Exception as e:
-                print(f"Stream frame error: {e}")
+                # Adaptive delay: longer delay if we're seeing frame issues
+                delay_ms = frame_delay_ms
+                if oversized_frames > 0 or failed_frames > 0:
+                    delay_ms = frame_delay_ms * 2  # Double delay during recovery
+                
+                await asyncio.sleep_ms(delay_ms)
+
+            except Exception:
                 break
 
-    except Exception as e:
-        print(f"Stream error: {e}")
+    except Exception:
+        pass
 
     finally:
+        # Remove from active streams
+        active_streams.discard(writer)
         try:
             await writer.aclose()
         except Exception:
             pass
-        print("Stream ended")
 
 
 def capture_raw_qxga():
@@ -268,15 +344,12 @@ def capture_raw_qxga():
     global cam_instance
 
     if not camera_available or not cam_instance:
-        print("Camera not available for raw capture")
         return None
 
     try:
         # Save current camera configuration
         current_frame_size_id = get_config_value("cam_framesize", 4)
         current_frame_size = FRAME_SIZES.get(current_frame_size_id, FrameSize.QVGA)
-
-        print("Temporarily switching to QXGA for snapshot...")
 
         # Reconfigure existing camera to QXGA
         cam_instance.reconfigure(
@@ -287,21 +360,16 @@ def capture_raw_qxga():
         rgb565_frame = cam_instance.capture()
 
         # Restore original camera configuration for streaming
-        print("Restoring original camera configuration...")
         cam_instance.reconfigure(
             pixel_format=PixelFormat.RGB565, frame_size=current_frame_size
         )
 
         if rgb565_frame:
-            print(f"Raw QXGA captured: 2048x1536, {len(rgb565_frame)} bytes")
             return rgb565_frame
         else:
-            print("Raw QXGA capture failed: no frame data")
             return None
 
-    except Exception as e:
-        print(f"Raw QXGA capture failed: {e}")
-
+    except Exception:
         # Try to restore original configuration on error
         try:
             current_frame_size_id = get_config_value("cam_framesize", 4)
@@ -309,10 +377,9 @@ def capture_raw_qxga():
             cam_instance.reconfigure(
                 pixel_format=PixelFormat.RGB565, frame_size=current_frame_size
             )
-            print("Camera configuration restored after error")
         except Exception:
-            print("Failed to restore camera configuration")
-
+            pass
+        return None
         return None
 
 
@@ -335,17 +402,8 @@ async def _stream_server(cfg=None):
 
     async def handle_request(reader, writer):
         try:
-            # Read request line with timeout
-            try:
-                req_line = await asyncio.wait_for(reader.readline(), timeout=10)
-            except asyncio.TimeoutError:
-                print("Request timeout")
-                try:
-                    await writer.aclose()
-                except Exception:
-                    pass
-                return
-
+            # Read request line
+            req_line = await reader.readline()
             if not req_line:
                 try:
                     await writer.aclose()
@@ -364,19 +422,11 @@ async def _stream_server(cfg=None):
 
             path = parts[1]
 
-            # Skip headers with timeout
-            try:
-                while True:
-                    hdr = await asyncio.wait_for(reader.readline(), timeout=5)
-                    if not hdr or hdr == b"\r\n":
-                        break
-            except asyncio.TimeoutError:
-                print("Header timeout")
-                try:
-                    await writer.aclose()
-                except Exception:
-                    pass
-                return
+            # Skip headers
+            while True:
+                hdr = await reader.readline()
+                if not hdr or hdr == b"\r\n":
+                    break
 
             # Only serve /stream endpoint
             if path == "/stream":
@@ -391,8 +441,7 @@ async def _stream_server(cfg=None):
                 except Exception:
                     pass
 
-        except Exception as e:
-            print(f"Stream server request error: {e}")
+        except Exception:
             try:
                 await writer.aclose()
             except Exception:
@@ -400,7 +449,6 @@ async def _stream_server(cfg=None):
 
     try:
         server = await asyncio.start_server(handle_request, "0.0.0.0", port)
-        print(f"Camera stream server started on port {port}")
 
         # Keep server running
         while True:
@@ -441,6 +489,15 @@ def start_camera_stream(cfg=None):
         import sys
 
         sys.print_exception(e)
+
+
+
+def stop_all_streams():
+    """Stop all active stream connections"""
+    global active_streams
+    count = len(active_streams)
+    active_streams.clear()
+    return count
 
 
 async def start_camera_stream_async(cfg=None):

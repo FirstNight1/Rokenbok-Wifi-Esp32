@@ -35,7 +35,7 @@ async def main():
         # Give camera stream a moment to initialize
         await asyncio.sleep(2)
 
-        print("System ready — web server and camera stream running concurrently.")
+        print("System ready — camera stream running concurrently.")
 
         # Keep both running - just wait indefinitely
         # Both servers will run until the system is shut down

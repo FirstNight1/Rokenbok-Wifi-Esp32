@@ -10,9 +10,6 @@
     "static_mask": "",
     "static_gw": "",
     "static_dns": "",
-    "ota_auto_backup": true,
-    "ota_last_update": null,
-    "ota_update_count": 0,
     "cam_pixel_format": "RGB565",
     "cam_framesize": 5,
     "cam_quality": 85,
@@ -23,5 +20,6 @@
     "cam_hmirror": 0,
     "cam_rotate": 0,
     "cam_speffect": 0,
-    "cam_stream_port": 8081
+    "cam_stream_port": 8081,
+    "cam_stream_delay_ms": 50
 }

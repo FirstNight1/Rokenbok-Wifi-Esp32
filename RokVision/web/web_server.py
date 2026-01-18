@@ -1,7 +1,7 @@
 import uasyncio as asyncio
 import sys
 from web.pages import admin_page, testing_page
-from RokCommon.ota.ota_page import ota_handler
+from RokCommon.ota.simple_ota import simple_ota_handler
 from RokCommon.web import handle_request, create_routes_from_modules
 from RokCommon.web.pages import wifi_page, home_page
 from RokCommon.web.api_handler import create_api_handler
@@ -32,7 +32,7 @@ ROUTES = {
     "/wifi": wifi_page.wifi_handler,
     "/admin": admin_page,
     "/testing": testing_page.testing_handler,
-    "/ota": ota_handler,  # Multi-step OTA system
+    "/ota": simple_ota_handler,  # Simple work-in-progress message
 }
 
 
@@ -185,12 +185,9 @@ async def handle_client(reader, writer):
 
         # Safer connection cleanup
         try:
-            print("[WEB SERVER] Closing connection...")
             await writer.aclose()
-            print("[WEB SERVER] Connection closed successfully")
-            print("[WEB SERVER] Handler complete")
         except Exception as close_error:
-            print(f"[WEB SERVER] Error closing connection: {close_error}")
+            pass
             # Don't re-raise, connection cleanup errors are not critical
 
     except UnicodeError as unicode_error:
@@ -203,7 +200,7 @@ async def handle_client(reader, writer):
             pass
             pass
     except Exception as e:
-        print(f"Web server error: {e}")
+        pass
         try:
             await writer.aclose()
         except Exception as close_error:
@@ -250,11 +247,11 @@ async def _handle_api_request(writer, method, headers, path, query_string, body)
             response_headers = f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(response)}\r\n\r\n"
             writer.write(response_headers.encode() + response.encode())
         elif path == "/api/stop_stream":
-            # Stream stop endpoint - try to cleanup gracefully 
+            # Stream stop endpoint - actually stop active streams
             try:
-                # For now, just return success since camera runs continuously
-                # Future: could implement actual stream connection tracking
-                response = '{"status": "ok", "message": "Stream stop acknowledged"}'
+                from cam.camera_stream import stop_all_streams
+                stopped_count = stop_all_streams()
+                response = f'{{"status": "ok", "message": "Stopped {stopped_count} stream(s)", "count": {stopped_count}}}'
             except Exception as e:
                 response = f'{{"status": "error", "message": "Stop failed: {e}"}}'
             response_headers = f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(response)}\r\n\r\n"
