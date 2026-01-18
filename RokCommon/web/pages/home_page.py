@@ -50,6 +50,7 @@ class HomePageHandler(PageHandler):
         # Get basic device information from config
         vehicle_name = get_config_value("vehicleName", "Unnamed Device")
         device_type = get_config_value("vehicleType", "Unknown")
+        vehicle_tag = get_config_value("vehicleTag", "N/A")
         project_type = get_config_value("projectType", "unknown")
 
         # Get network information
@@ -85,6 +86,7 @@ class HomePageHandler(PageHandler):
             "{{ header_nav }}": header_nav,
             "{{ vehicle_name }}": vehicle_name,
             "{{ device_type }}": device_type,
+            "{{ vehicle_tag }}": vehicle_tag,
             "{{ ip }}": ip,
             "{{ memory_info }}": memory_info,
             "{{ busy_status_script }}": busy_status_script,
@@ -113,42 +115,9 @@ class HomePageHandler(PageHandler):
         return "Unavailable"
 
     def _load_asset_template(self, filename):
-        """Load template from RokCommon assets directory with fallback"""
-        # Try main path first
+        """Load template from RokCommon assets directory"""
         content = load_template(f"RokCommon/web/pages/assets/{filename}")
-        if content is not None:
-            return content
-
-        # Fallback to relative path
-        content = load_template(f"web/pages/assets/{filename}")
-        if content is not None:
-            return content
-
-        # Final fallback - minimal template
-        if filename == "header_nav.html":
-            return """<header>
-<h1>{{ vehicle_name }}</h1>
-<nav>
-<a href="/">Home</a> | <a href="/wifi">WiFi</a> | <a href="/admin">Admin</a> | <a href="/testing">{{ testing_label }}</a> | <a href="/ota">OTA</a>
-{{ play_link }}
-</nav>
-</header>"""
-        elif filename == "home_page.html":
-            return """<!DOCTYPE html>
-<html>
-<head><title>{{ vehicle_name }}</title></head>
-<body>
-{{ header_nav }}
-<h2>Device Information</h2>
-<p>Type: {{ device_type }}</p>
-<p>IP: {{ ip }}</p>
-<p>Memory: {{ memory_info }}</p>
-<p id="vehicle_status">Loading...</p>
-<script>{{ busy_status_script }}</script>
-</body>
-</html>"""
-        else:
-            return f"<html><body><h1>Template not found: {filename}</h1></body></html>"
+        return content
 
     def process_header_nav(self, header_nav, vehicle_name=None, project_type=None):
         """

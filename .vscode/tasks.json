@@ -65,7 +65,7 @@
         {
             "label": "Erase Flash and reflash FPV firmware",
             "type": "shell",
-            "command": "python -m esptool --port COM18 erase_flash; sleep 10; python -m esptool --chip esp32s3 --port COM18 write_flash -z 0x0 'c:\\Users\\Tim Ehrlich\\Downloads\\FPVfirmware.bin'",
+            "command": "python -m esptool --port COM18 erase_flash; sleep 10; python -m esptool --chip esp32s3 --port COM18 write_flash -z 0x0 '${workspaceFolder}\\VehicleInfo\\FPV Firmware\\firmware.bin'",
             "group": "build",
             "problemMatcher": []
         },
@@ -79,7 +79,7 @@
         {
             "label": "Remove all files from board",
             "type": "shell",
-            "command": "python -m mpremote connect COM19 rm -r :/",
+            "command": "python -m mpremote connect COM17 rm -r :/",
             "group": "build",
             "problemMatcher": []
         }

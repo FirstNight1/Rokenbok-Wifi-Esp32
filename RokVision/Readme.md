@@ -1,11 +1,11 @@
 # 📹 RokVision - FPV Camera System for ESP32-S3
 
-RokVision provides wireless FPV (First Person View) camera streaming for Rokenbok vehicles using the SeeedStudio XIAO ESP32-S3 Sense module. It automatically detects and supports both **OV2640** and **OV3660** camera sensors.
+RokVision provides wireless FPV (First Person View) camera streaming for Rokenbok vehicles using the SeeedStudio XIAO ESP32-S3 Sense module. It supports both **OV2640** and **OV3660** camera sensors.
 
 ## 🎯 Features
 
 - **📡 Wireless MJPEG streaming** - View directly in any web browser
-- **🔍 Automatic camera detection** - Works with both OV2640 and OV3660 sensors
+- **🔍 Works with all XIAO ESP32S3 Sense Cameras** - Works with both OV2640 and OV3660 sensors
 - **🌐 WiFi connectivity** - AP mode or connect to your home network
 - **⚙️ Web-based configuration** - Easy setup through browser interface
 - **📱 Cross-platform viewing** - Compatible with phones, tablets, computers
@@ -19,12 +19,19 @@ RokVision provides wireless FPV (First Person View) camera streaming for Rokenbo
   - Must have PSRAM (8MB recommended)
 - **USB-C cable** for programming and power
 - **Power source** for mobile use (battery pack, vehicle power, etc.)
+- **(Optional) OV2640 camera separately - see note** for better FPV frame rates
 
 ### Supported Cameras
 - **OV2640** - 2MP camera (older boards) - I2C address 0x30
 - **OV3660** - 3MP camera (newer boards) - I2C address 0x3C
 
-*The system automatically detects which camera is installed and configures accordingly.*
+## Camera Sensor Note
+The Seeed XIAO ESP32-S3 Sense mostly ships now with the OV3660 camera, which is a higher resolution camera, but lacks a native JPEG encoder in the hardware.  Both cameras get their best FPS (balanced with resolution) at CIF or QVGA resolution, which is about 320x240.  The OV3660 just by limitation of the camera hardware and micropython gets about 11 FPS.  The OV2640 gets about 25 FPS at the same resolution. Unfortunately, increasing to VGA resolution drops framerates to about 6FPS on both boards. 
+
+For that reason, I suggest purchasing the OV2640 separately, they're about $5 each. They are a direct replacement for the OV3660, you just need to lift the black lever to disengage the ribbon connector, and insert the ribbon connector for the new camera, adjust the camera type on the admin page, and you're good to go.
+
+### FPV Future
+Rewriting the FPV into C or using another streaming methodology might be able to increase this, but 25 FPS at QVGA is pretty reasonable to drive with.  A future TODO is to add taking full-resolution snapshots on-demand, so say you are stuck somewhere or want to see something better, you can click a camera on the interface and get a full-resolution picture back, then it'll go back to low resolution streaming.  This determination was made that the area camera will stream in 1080p/4k, so the FPV camera being lower resolution is fine just to get a more frontal view of your vehicle when it is obscured from the area camera or in a tight place.
 
 ## 🚀 Quick Start Guide
 

@@ -23,17 +23,13 @@ import _thread
 async def main():
     """Main async function to run both services concurrently"""
     try:
-        print("Starting web server and camera stream...")
-
         # Start web server first (it's more critical)
-        print("1. Starting web server...")
         web_server = await web.web_server.start_web_server()
 
         # Give web server a moment to start
         await asyncio.sleep(2)
 
         # Then start camera stream
-        print("2. Starting camera stream...")
         camera_task = asyncio.create_task(start_camera_stream_async(cfg))
 
         # Give camera stream a moment to initialize

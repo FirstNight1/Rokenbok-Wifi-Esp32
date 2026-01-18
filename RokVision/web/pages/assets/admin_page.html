@@ -13,6 +13,11 @@
         <div style='flex:1;'>
             <h2>Admin Settings</h2>
             <form method="POST" action="/admin">
+                <label>Camera Type:</label><br>
+                <select name="cam_type">
+                    {{ cam_type_options }}
+                </select><br>
+                <small style="color:#666;">Select OV2640 for hardware JPEG, OV3660 for software JPEG.</small><br><br>
                 <label>Vehicle Type:</label><br>
                 <select name="vehicleType">{{ type_options }}</select><br>
                 <small style="color:#c00;font-size:0.95em;display:block;margin-bottom:10px;">

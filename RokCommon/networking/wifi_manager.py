@@ -109,24 +109,28 @@ def connect_to_wifi():
         except Exception as e:
             print("STA connect() threw:", e)
             wifierror = e
-            time.sleep(3)
+            time.sleep(2)
             continue
 
         # Check if the connection was successful
-        for _ in range(20):  # 6 seconds max
+        for _ in range(10):  # 2 seconds max
             if sta.isconnected():
                 print("Connected!", sta.ifconfig())
                 save_config_value("wifi_error", False)
                 return sta
 
-            time.sleep(0.3)
+            time.sleep(0.2)
 
     print("Failed to connect after 5 attempts.")
     save_config_value("wifi_error", True)
     save_config_value(
         "wifi_error_text", locals().get("wifierror", "Unknown Error occurred")
     )
-    return None
+    
+    # Fall back to AP mode when STA connection fails
+    print("Falling back to AP mode...")
+    tag = get_config_value("vehicleTag", "RokDevice")
+    return start_ap_mode(tag)
 
 
 # ---------------------------------------------------------

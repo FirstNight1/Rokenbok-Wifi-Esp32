@@ -5,7 +5,7 @@ from web.pages import (
     testing_page,
     play_page,
 )
-from RokCommon.ota import ota_page
+from RokCommon.ota.ota_page import ota_handler
 from RokCommon.web import handle_request, create_routes_from_modules
 from RokCommon.web.pages import wifi_page, home_page
 from RokCommon.web.api_handler import create_api_handler
@@ -40,7 +40,7 @@ ROUTES = {
     "/admin": admin_page,
     "/testing": testing_page,
     "/play": play_page,
-    "/ota": ota_page.ota_handler,  # Use the new unified handler
+    "/ota": ota_handler,  # Multi-step OTA system
 }
 
 
@@ -174,27 +174,8 @@ async def precache_critical_assets():
 
 
 async def handle_client(reader, writer):
-    """Unified client handler with RokVehicle-specific features"""
-    client_ip = "unknown"
+    """Client handler with WebSocket, API, and unified page handling"""
     try:
-        # Get client IP for logging
-        try:
-            client_ip = (
-                writer.get_extra_info("peername")[0]
-                if hasattr(writer, "get_extra_info")
-                else "unknown"
-            )
-        except Exception:
-            pass
-
-        # Performance monitoring
-        if perf_monitor:
-            perf_monitor.log_request("unknown")
-
-        # Memory pressure check
-        if memory_pressure_check and memory_pressure_check():
-            gc.collect()
-
         # Read request line
         req_line = await reader.readline()
         if not req_line:
@@ -221,56 +202,42 @@ async def handle_client(reader, writer):
         else:
             path, query_string = full_path, ""
 
-        # Update performance monitoring with actual path
-        if perf_monitor:
-            perf_monitor.log_request(path)
-
         # Read headers
         headers = {}
-        header_count = 0
-        while header_count < 50:
+        while True:
             hdr = await reader.readline()
             if not hdr or hdr == b"\r\n":
                 break
             try:
                 line = hdr.decode().strip()
-                header_count += 1
                 if ":" in line:
                     k, v = line.split(":", 1)
                     headers[k.strip().lower()] = v.strip()
             except Exception:
                 continue
 
-        await asyncio.sleep(0)  # Yield control
-
         # Handle WebSocket upgrades (RokVehicle specific)
         if (
             headers.get("upgrade") == "websocket"
-            and hashlib
             and "sec-websocket-key" in headers
         ):
             if path.startswith("/ws"):
                 await _handle_websocket(reader, writer, headers, path)
                 return
 
-        # Handle static assets (RokVehicle specific)
+        # Handle static assets
         if path.startswith("/assets/") or path == "/favicon.ico":
             await _handle_static_assets(writer, path)
             return
 
-        # Handle API endpoints via common API handler
+        # Handle API endpoints
         if path.startswith("/api/"):
-            # Read POST body here in main handler to avoid double reading
             body = ""
             if method == "POST":
                 content_length = int(headers.get("content-length", 0))
                 if content_length > 0:
                     body_bytes = await reader.read(content_length)
-                    body = (
-                        body_bytes.decode("utf-8")
-                        if isinstance(body_bytes, bytes)
-                        else str(body_bytes)
-                    )
+                    body = body_bytes.decode("utf-8") if isinstance(body_bytes, bytes) else str(body_bytes)
 
             await _handle_api_request(writer, method, headers, path, query_string, body)
             return
@@ -280,17 +247,14 @@ async def handle_client(reader, writer):
             await _handle_legacy_status(writer)
             return
 
-        # Use unified handler for all page routes
+        # Use unified handler for page routes
         await handle_request(reader, writer, ROUTES, _load_template)
 
     except OSError as e:
-        if getattr(e, "errno", None) == 104:  # ECONNRESET
-            print(f"Client {client_ip} disconnected early")
-        else:
-            print(f"Network error handling request from {client_ip}: {e}")
+        if getattr(e, "errno", None) != 104:  # Ignore ECONNRESET
+            print(f"Network error: {e}")
     except Exception as e:
-        print(f"Error handling request from {client_ip}: {e}")
-        sys.print_exception(e)
+        print(f"Error handling request: {e}")
     finally:
         try:
             await writer.aclose()
@@ -413,33 +377,28 @@ async def _handle_static_assets(writer, path):
 
 
 async def _handle_api_request(writer, method, headers, path, query_string, body=""):
-    """Handle API requests via common API handler"""
+    """Handle API requests"""
     try:
-        # Create Request object with body already read
-        from RokCommon.web.request_response import Request
-
-        request = Request(
-            method=method,
-            path=path,
-            query_string=query_string,
-            body=body,
-            headers=headers,
-            content_type=headers.get("content-type", ""),
-        )
-
-        # Handle via API handler
-        response = await api_handler.handle(request)
-
-        # Send response
-        response_data = response.encode("utf-8")
-        writer.write(response_data)
+        # Simple response for status
+        if path == "/api/status":
+            response = '{"status": "ok", "device": "RokVehicle", "uptime": 0}'
+            response_headers = f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(response)}\r\n\r\n"
+            writer.write(response_headers.encode() + response.encode())
+        else:
+            # 404 for other API endpoints
+            response = '{"error": "API endpoint not found"}'
+            response_headers = f"HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: {len(response)}\r\n\r\n"
+            writer.write(response_headers.encode() + response.encode())
+            
         await writer.drain()
         await writer.aclose()
 
     except Exception as e:
         print(f"API request error: {e}")
+        error_response = f'{{"error": "{str(e)}"}}'
+        response_headers = f"HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {len(error_response)}\r\n\r\n"
         try:
-            writer.write(b"HTTP/1.1 500 Internal Server Error\r\n\r\n")
+            writer.write(response_headers.encode() + error_response.encode())
             await writer.drain()
             await writer.aclose()
         except Exception:
@@ -638,58 +597,18 @@ async def _keep_alive():
 
 
 def run():
-    # Create a NEW event loop for this thread - critical for threading!
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # Use existing event loop for MicroPython compatibility
+    loop = asyncio.get_event_loop()
 
     loop.create_task(start_web_server())
     loop.create_task(_keep_alive())
 
-    # Import UDP command queue
-    try:
-        from networking.udp_listener import cmd_queue
-    except Exception:
-        cmd_queue = None
-
-    # If MotorController is present, schedule its async watchdog and UDP consumer
+    # If MotorController is present, schedule its async watchdog
     try:
         import control.motor_controller as mc
 
         if hasattr(mc, "motor_controller") and hasattr(mc.motor_controller, "watchdog"):
             loop.create_task(mc.motor_controller.watchdog())
-
-            # UDP command consumer: runs in main thread, processes queued UDP commands
-            async def udp_consumer():
-                loop_count = 0
-                while True:
-                    if cmd_queue:
-                        cmds = cmd_queue.get_all()
-                        for p in cmds:
-                            if not isinstance(p, dict):
-                                continue
-                            action = p.get("action")
-                            if action == "set":
-                                name = p.get("name")
-                                dir = p.get("dir", "fwd")
-                                try:
-                                    power = float(p.get("power", 0))
-                                except Exception:
-                                    power = 0
-                                mc.motor_controller.set_motor(name, dir, power)
-                            elif action == "stop":
-                                mc.motor_controller.stop_motor(p.get("name"))
-                            elif action == "stop_all":
-                                mc.motor_controller.stop_all()
-
-                    # Periodic GC to prevent memory buildup in UDP processing
-                    loop_count += 1
-                    if loop_count % 500 == 0:  # Every ~5 seconds at 10ms sleep
-                        gc.collect()
-                        loop_count = 0
-
-                    await asyncio.sleep(0.01)
-
-            loop.create_task(udp_consumer())
     except Exception:
         pass
 

@@ -69,10 +69,14 @@ def init_camera():
     except:
         pass
 
+
     try:
-        # Get camera settings from config - ensure sensible defaults
-        frame_size_id = get_config_value("cam_framesize", 4)  # Default QVGA
-        quality = get_config_value("cam_quality", 85)  # Default 85%
+        from RokCommon.variables.vars_store import get_config_value
+
+        # Get camera settings from config (no auto-detection)
+        frame_size_id = get_config_value("cam_framesize", 5)  # Default CIF
+        quality = get_config_value("cam_quality", 85)  # Default 85
+        pixel_format = get_config_value("cam_pixel_format", "RGB565")  # Default RGB565
 
         # Ensure frame size is reasonable for streaming (not QXGA)
         if frame_size_id == 8:  # QXGA is too large for streaming
@@ -80,14 +84,19 @@ def init_camera():
             print("QXGA not suitable for streaming, using VGA")
 
         # Map frame size
-        frame_size = FRAME_SIZES.get(frame_size_id, FrameSize.QVGA)
-        width, height = FRAME_DIMENSIONS.get(frame_size_id, (320, 240))
+        frame_size = FRAME_SIZES.get(frame_size_id, FrameSize.CIF)
+        width, height = FRAME_DIMENSIONS.get(frame_size_id, (400, 296))
 
-        print(f"Initializing camera: {width}x{height}, quality={quality}")
+        print(f"Initializing camera: {width}x{height}, quality={quality}, pixel_format={pixel_format}")
 
-        # Initialize camera with RGB565 (confirmed working with RGB565_BE JPEG encoder)
+        # Select pixel format enum
+        if pixel_format == "JPEG":
+            pixel_format_enum = PixelFormat.JPEG
+        else:
+            pixel_format_enum = PixelFormat.RGB565
+
         cam_instance = Camera(
-            pixel_format=PixelFormat.RGB565,
+            pixel_format=pixel_format_enum,
             frame_size=frame_size,
             fb_count=2,  # Double buffer
         )
@@ -101,12 +110,15 @@ def init_camera():
         # Apply camera settings from config
         apply_camera_settings()
 
-        # Initialize JPEG encoder with RGB565_BE format (confirmed working)
-        jpeg_encoder = jpeg.Encoder(
-            width=width, height=height, pixel_format="RGB565_BE", quality=quality
-        )
-
-        print("Camera and JPEG encoder initialized successfully")
+        # Only use software JPEG encoder if not native JPEG
+        if pixel_format == "RGB565":
+            jpeg_encoder = jpeg.Encoder(
+                width=width, height=height, pixel_format="RGB565_BE", quality=quality
+            )
+            print("Camera and software JPEG encoder initialized successfully")
+        else:
+            jpeg_encoder = None
+            print("Camera initialized in native JPEG mode (hardware JPEG)")
         return True
 
     except Exception as e:
@@ -213,11 +225,12 @@ async def stream_handler(reader, writer):
                     await asyncio.sleep(0.05)
                     continue
 
-                # Encode to JPEG (use software encoder if available, otherwise assume hardware JPEG)
+                # Encode to JPEG (camera already provides JPEG!)
                 if jpeg_encoder:
+                    # Fallback software encoding (shouldn't happen with native JPEG)
                     jpeg_frame = jpeg_encoder.encode(frame)
                 else:
-                    # Assume frame is already JPEG from hardware
+                    # Native JPEG from camera hardware - just use the frame directly
                     jpeg_frame = frame
 
                 # Send frame
@@ -228,7 +241,7 @@ async def stream_handler(reader, writer):
                 writer.write(b"\r\n")
                 await writer.drain()
 
-                await asyncio.sleep(0.05)  # ~20 FPS
+                # No delay - let camera/network determine actual FPS
 
             except Exception as e:
                 print(f"Stream frame error: {e}")
@@ -403,7 +416,6 @@ def start_camera_stream(cfg=None):
 
     async def camera_main():
         try:
-            print("Starting camera stream server...")
             await _stream_server(cfg)
         except Exception as e:
             print(f"Camera stream server error: {e}")

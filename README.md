@@ -60,6 +60,8 @@ If the vehicle is equipped with LEDs (or the remote key slot is wired for the re
 - **Solid on**: Successfully connected to WiFi (STA mode) 
 - **Blinking bright/dim for 10 seconds, then solid**: Access Point (AP) mode active
 
+## OTA Update Instructions for Vehicles and FPV systems
+See OTA_UPDATE_README.md
 
 # TODO List (Project-wide)
 

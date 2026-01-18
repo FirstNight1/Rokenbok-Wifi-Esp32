@@ -57,14 +57,13 @@
 
             // Stop camera stream when navigating away
             function stopStream() {
-                fetch('/api/stop_stream', { method: 'POST' });
+                try {
+                    fetch('/api/stop_stream', { method: 'POST' }).catch(() => {});
+                } catch(e) {}
             }
+            
+            // Only use beforeunload to avoid double calls
             window.addEventListener('beforeunload', stopStream);
-            document.addEventListener('visibilitychange', function () {
-                if (document.visibilityState === 'hidden') {
-                    stopStream();
-                }
-            });
         })();
     </script>
 </body>

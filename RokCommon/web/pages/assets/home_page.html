@@ -24,24 +24,34 @@
         // Initialize with server-side values from config - no fallbacks needed
         document.getElementById('vehicle_name').textContent = '{{ vehicle_name }}';
         document.getElementById('vehicle_type').textContent = '{{ device_type }}';
-        document.getElementById('vehicle_tag').textContent = 'Loading...'; // This comes from API
+        document.getElementById('vehicle_tag').textContent = '{{ vehicle_tag }}'; // From config, not API
 
         // Fetch dynamic status (temperature, battery, busy state)
         fetch('/api/status').then(r => r.json()).then(js => {
-            // Only update dynamic values from API
-            if (js.tag) {
-                document.getElementById('vehicle_tag').textContent = js.tag;
-            }
 
             // Project type determines if busy status is available
             {{ busy_status_script }}
 
             document.getElementById('vehicle_battery').textContent = js.battery !== undefined && js.battery !== null ? js.battery : 'N/A';
-            document.getElementById('mcu_temp').textContent = (js.mcu_temp !== undefined && js.mcu_temp !== null) ? js.mcu_temp.toFixed(1) : 'N/A';
+            
+            // Parse temperature - expect numeric value from API
+            if (js.mcuTemp && js.mcuTemp !== 'N/A') {
+                if (typeof js.mcuTemp === 'number') {
+                    document.getElementById('mcu_temp').textContent = js.mcuTemp;
+                } else if (typeof js.mcuTemp === 'string') {
+                    // Handle string numbers or existing formatted strings
+                    const numTemp = parseFloat(js.mcuTemp.replace(/[^\d.]/g, ''));
+                    document.getElementById('mcu_temp').textContent = isNaN(numTemp) ? js.mcuTemp : numTemp;
+                } else {
+                    document.getElementById('mcu_temp').textContent = js.mcuTemp;
+                }
+            } else {
+                document.getElementById('mcu_temp').textContent = 'N/A';
+            }
 
-            // Update memory if API provides it (otherwise use server-side value)
-            if (js.memory) {
-                const memKB = Math.round(js.memory.free / 1024);
+            // Update memory if API provides it
+            if (js.memoryFree) {
+                const memKB = Math.round(js.memoryFree / 1024);
                 document.getElementById('memory_info').textContent = `${memKB} KB free`;
             }
         }).catch(e => {

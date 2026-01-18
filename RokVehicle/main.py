@@ -7,8 +7,6 @@ from RokCommon.variables.vars_store import init_config, get_config_value
 from RokCommon.networking.wifi_manager import connect_to_wifi
 from control.led_status import init_led_status, startup_blink, set_wifi_status
 
-# Start UDP listener (non-blocking). Module auto-starts its thread on import.
-import networking.udp_listener
 
 # Initialize configuration first
 cfg = init_config()

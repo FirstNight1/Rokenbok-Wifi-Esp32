@@ -33,6 +33,7 @@ class AdminPageHandler(PageHandler):
                 "vehicleType": get_config_value("vehicleType"),
                 "vehicleTag": get_config_value("vehicleTag"),
                 "vehicleName": get_config_value("vehicleName"),
+                "cam_type": get_config_value("cam_type", "OV3660"),
                 "cam_framesize": get_config_value("cam_framesize", 4),
                 "cam_quality": get_config_value("cam_quality", 85),
                 "cam_contrast": get_config_value("cam_contrast", 0),
@@ -58,9 +59,9 @@ class AdminPageHandler(PageHandler):
             # Return redirect response
             if result and len(result) > 1:
                 redirect_path = result[1]
-                return Response.redirect(redirect_path)
+                return Response.redirect_to(redirect_path)
             else:
-                return Response.redirect("/admin")
+                return Response.redirect_to("/admin")
 
         except Exception as e:
             print(f"Admin page POST error: {e}")
@@ -130,6 +131,14 @@ def handle_post_legacy(body, cfg):
     if tag_from_form is not None and tag_from_form != old_tag:
         new_tag = tag_from_form
 
+    # Camera type dropdown logic
+    cam_type = fields.get("cam_type", get_config_value("cam_type", "OV3660"))
+    save_config_value("cam_type", cam_type)
+    if cam_type == "OV2640":
+        save_config_value("cam_pixel_format", "JPEG")
+    else:
+        save_config_value("cam_pixel_format", "RGB565")
+
     # Save settings
     save_config_value("vehicleType", new_type)
     save_config_value("vehicleTag", new_tag)
@@ -185,6 +194,7 @@ def handle_get():
         "vehicleType": get_config_value("vehicleType"),
         "vehicleTag": get_config_value("vehicleTag"),
         "vehicleName": get_config_value("vehicleName"),
+        "cam_type": get_config_value("cam_type", "OV3660"),
         "cam_framesize": get_config_value("cam_framesize", 4),
         "cam_quality": get_config_value("cam_quality", 85),
         "cam_contrast": get_config_value("cam_contrast", 0),
@@ -270,6 +280,14 @@ def build_admin_page(cfg):
             ]
         )
 
+        # Camera type dropdown (OV2640/OV3660)
+        cam_type = cfg.get("cam_type", "OV3660")
+        cam_type_options = []
+        for val, label in [("OV2640", "OV2640 (JPEG, fast)"), ("OV3660", "OV3660 (RGB565, software JPEG)")]:
+            selected = "selected" if cam_type == val else ""
+            cam_type_options.append(f'<option value="{val}" {selected}>{label}</option>')
+        cam_type_options_html = "\n                    ".join(cam_type_options)
+
         # Load main admin page template
         html = _load_template("web/pages/assets/admin_page.html")
         if not html:
@@ -322,6 +340,14 @@ def build_admin_page(cfg):
             )
         speffect_options_html = "\n                    ".join(speffect_options)
 
+        # Camera type dropdown (OV2640/OV3660)
+        cam_type = cfg.get("cam_type", "OV3660")
+        cam_type_options = []
+        for val, label in [("OV2640", "OV2640 (JPEG, fast)"), ("OV3660", "OV3660 (RGB565, software JPEG)")]:
+            selected = "selected" if cam_type == val else ""
+            cam_type_options.append(f'<option value="{val}" {selected}>{label}</option>')
+        cam_type_options_html = "\n                    ".join(cam_type_options)
+
         # Generate checkbox states
         vflip_checked = "checked" if vflip == "1" else ""
         hmirror_checked = "checked" if hmirror == "1" else ""
@@ -332,6 +358,7 @@ def build_admin_page(cfg):
             "{{ vehicle_tag }}": cfg.get("vehicleTag", "") or "",
             "{{ vehicle_name }}": cfg.get("vehicleName", "") or "",
             "{{ framesize_options }}": framesize_options_html,
+            "{{ cam_type_options }}": cam_type_options_html,
             "{{ speffect_options }}": speffect_options_html,
             "{{ vflip_checked }}": vflip_checked,
             "{{ hmirror_checked }}": hmirror_checked,

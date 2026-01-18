@@ -61,15 +61,13 @@ class WiFiPageHandler(PageHandler):
         """Handle POST requests for WiFi configuration"""
         try:
             # Parse form data
-            form_data = request.get_form_data()
-
-            ssid = form_data.get("ssid", "")
-            wifipass = form_data.get("wifipass", "")
-            ip_mode = form_data.get("ip_mode", "dhcp")
-            static_ip = form_data.get("static_ip", "")
-            static_mask = form_data.get("static_mask", "")
-            static_gw = form_data.get("static_gw", "")
-            static_dns = form_data.get("static_dns", "")
+            ssid = request.get_form("ssid", "")
+            wifipass = request.get_form("wifipass", "")
+            ip_mode = request.get_form("ip_mode", "dhcp")
+            static_ip = request.get_form("static_ip", "")
+            static_mask = request.get_form("static_mask", "")
+            static_gw = request.get_form("static_gw", "")
+            static_dns = request.get_form("static_dns", "")
 
             # Update configuration
             save_config_value("ssid", ssid)
@@ -84,7 +82,7 @@ class WiFiPageHandler(PageHandler):
             save_config_value("wifi_error", None)
 
             # Redirect to WiFi page
-            return Response.redirect("/wifi")
+            return Response.redirect_to("/wifi")
 
         except Exception as e:
             print(f"WiFi page POST error: {e}")
