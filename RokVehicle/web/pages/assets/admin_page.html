@@ -25,20 +25,50 @@
             <div
                 style="border: 1px solid #ccc; padding: 15px; margin: 15px 0; border-radius: 5px; background: #f9f9f9;">
                 <h3 style="margin-top: 0; color: #333;">LED Configuration</h3>
+                
+                {{ shared_led_note }}
+                
+                <h4 style="color: #555;">Network Status LED</h4>
                 <label>
                     <input type="checkbox" name="ledEnabled" id="ledEnabled" {{ led_enabled_checked }}>
-                    Enable LED Status Indicator
-                </label><br><br>
+                    Enable Network Status LED
+                </label><br>
+                <small style="color: #666;">Shows WiFi connection status (blinking during boot/AP mode, solid when connected)</small><br><br>
 
-                <label>LED Pin:</label><br>
-                <select name="ledPin" id="ledPin" style="margin-bottom: 10px;">
+                <label>Network LED Pin:</label><br>
+                <select name="ledPin" id="ledPin" style="margin-bottom: 15px;">
                     {{ led_pin_options }}
+                </select><br>
+                
+                <h4 style="color: #555;">Busy Status LED</h4>
+                <label>
+                    <input type="checkbox" name="busyLedEnabled" id="busyLedEnabled" {{ busy_led_enabled_checked }}>
+                    Enable Busy Status LED
+                </label><br>
+                <small style="color: #666;">Shows vehicle activity (blinking when available, solid when busy)</small><br><br>
+
+                <label>Busy LED Pin:</label><br>
+                <select name="busyLedPin" id="busyLedPin" style="margin-bottom: 10px;">
+                    {{ busy_led_pin_options }}
                 </select><br>
 
                 <div style="color: #666; font-size: 0.9em; margin-top: 5px;">
-                    <em>Note: Grayed out pins are currently used by motors.
-                        Update motor pin configuration on the Motor Config page to free up pins.</em>
+                    <em>Note: Grayed out pins are currently used by motors or enabled LEDs.
+                        Pins from disabled LEDs are available for other uses. Use "Disabled" to free up pins.</em>
                 </div>
+            </div>
+
+            <div
+                style="border: 1px solid #ccc; padding: 15px; margin: 15px 0; border-radius: 5px; background: #f9f9f9;">
+                <h3 style="margin-top: 0; color: #333;">Motor Safety Configuration</h3>
+                
+                <label>Motor Safety Timeout (ms):</label><br>
+                <input type="number" name="motorSafetyTimeoutMs" value="{{ motor_safety_timeout }}" min="100" max="5000" step="50" style="width: 120px;">
+                <br>
+                <small style="color: #666;">
+                    Time in milliseconds before motors automatically stop if no new commands received. 
+                    <br>Lower values (&lt;400ms) are ideal for local networks, internet operation may require higher values.
+                </small>
             </div>
 
             <button type="submit" name="save" value="1">Save</button>
@@ -49,11 +79,35 @@
     <script>
 
         // Vehicle type mapping (typeName -> tagName)
-        const vehicleTypeMap = JSON.parse('{{ vehicle_type_map }}');
+        let vehicleTypeMap = {};
+        try {
+            const mapData = '{{ vehicle_type_map }}';
+            
+            // Check if template replacement failed (still contains template syntax)
+            if (!mapData || mapData.includes('{{') || mapData.trim() === '') {
+                console.error('Vehicle type mapping not loaded');
+                alert('Configuration Error: Vehicle type mapping not loaded. Please refresh the page.');
+            } else {
+                vehicleTypeMap = JSON.parse(mapData);
+                if (Object.keys(vehicleTypeMap).length === 0) {
+                    console.error('No vehicle types configured');
+                    alert('Configuration Error: No vehicle types configured. Check server configuration.');
+                }
+            }
+        } catch (e) {
+            console.error('Error parsing vehicle type map:', e);
+            alert('Configuration Error: Invalid vehicle type data. Check server logs.');
+        }
 
         function updateVehicleTag() {
             const typeSelect = document.getElementById('vehicleType');
             const tagInput = document.getElementById('vehicleTag');
+            
+            if (!typeSelect || !tagInput) {
+                console.error('Missing DOM elements for vehicle tag update');
+                return;
+            }
+            
             const selectedType = typeSelect.value;
             const newTagName = vehicleTypeMap[selectedType] || selectedType;
 
@@ -74,6 +128,13 @@
                 tagInput.value = suffix ? newTagName + "-" + suffix : newTagName;
             }
             // If no match, do not auto-update (user has manually edited)
+        }
+
+        function setMaxPower(motorName) {
+            const input = document.querySelector(`input[name="${motorName}_max"]`);
+            if (input) {
+                input.value = 65;
+            }
         }
     </script>
 </body>

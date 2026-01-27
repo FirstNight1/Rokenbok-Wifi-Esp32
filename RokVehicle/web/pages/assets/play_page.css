@@ -5,7 +5,7 @@ body {
     background-color: #f4f4f9;
     color: #333;
     margin: 0;
-    padding: 1em;
+    padding: 0; /* Remove default padding to integrate with header */
 }
 
 /* Main layout: video area and sidebar */
@@ -13,11 +13,16 @@ body {
     display: flex;
     gap: 1em;
     align-items: flex-start;
+    padding: 1em; /* Add padding to main content area instead */
 }
 
 .video-area {
     flex: 1;
     min-width: 0;
+    padding: 20px; /* Add padding around video area */
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .sidebar {
@@ -86,10 +91,13 @@ body {
 #video_container {
     position: relative;
     width: 100%;
-    max-width: 800px;
+    max-width: 100%;
     aspect-ratio: 16 / 9;
     background-color: #000;
     margin-bottom: 1em;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .video-main,
@@ -113,11 +121,14 @@ body {
     left: auto;
     border: 2px solid #fff;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    border-radius: 4px;
 }
 
-video {
+video, .video-full {
     width: 100%;
     height: 100%;
+    object-fit: contain; /* Scale to fit viewport while maintaining aspect ratio */
+    background-color: #000;
 }
 
 #mapping_modal {

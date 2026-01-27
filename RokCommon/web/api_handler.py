@@ -127,10 +127,14 @@ class APIHandler:
             # Add vehicle-specific busy status if this is a vehicle project
             if project_type == "vehicle":
                 try:
-                    # Import here to avoid circular imports
-                    from web.web_server import WS_CLIENT
-
-                    status_info["busy"] = bool(WS_CLIENT)
+                    # Try to use effective busy status (with override support) if available
+                    try:
+                        from web.web_server import get_effective_busy_status
+                        status_info["busy"] = get_effective_busy_status()
+                    except ImportError:
+                        # Fallback to raw WebSocket status if override function not available
+                        from web.web_server import WS_CLIENT
+                        status_info["busy"] = bool(WS_CLIENT)
                 except Exception:
                     status_info["busy"] = False
 

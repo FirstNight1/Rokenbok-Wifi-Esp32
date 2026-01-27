@@ -5,8 +5,27 @@ const state = {
     selectedGamepadIndex: 0,
     gamepadPollInterval: null,
     controlState: {}, // Tracks active controls to prevent redundant commands
-    driveMode: 'tank', // 'tank' or 'dpad'
+    driveMode: 'dpad', // 'tank' or 'dpad'
     mapping: {},
+    keyboardState: {}, // Tracks currently pressed keys for D-Pad mode
+    slowModeActive: false, // Tracks if slow mode is currently active
+
+    // Combined control state for efficient packet sending
+    activeControls: {
+        axisMotors: {},      // {motorName: {dir, power, useSlowMode}}
+        functionMotors: {},  // {motorName: {dir, on}}
+        logicFunctions: {}   // {funcId: pressed}
+    },
+    lastSentControls: '',    // JSON string of last sent state for comparison
+    
+    // Control packet timing
+    pollCount: 0,            // Track polls for every-third sending
+    lastControlActiveTime: 0, // Track when controls were last active for abandonment timeout
+    controlAbandonmentMs: 60000, // 1 minute timeout
+    
+    // Axis jitter handling for tank mode
+    tankModeSnapshot: null,  // Snapshot taken at intervals for tank mode
+    tankModeSnapshotInterval: null,  // Interval for taking snapshots in tank mode
 
     // Vehicle Configuration
     vehicleConfig: {
@@ -34,7 +53,7 @@ const state = {
 
 // --- Constants ---
 const DEADZONE = 0.1;
-const KEEPALIVE_INTERVAL = 100; // ms, for motor watchdog
+const KEEPALIVE_INTERVAL = 140; // ms, for motor watchdog (7 * 20ms polling)
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -42,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initGamepad();
     initWebSocket();
     loadConfiguration();
+    initKeyboardMapping();
 });
 
 /**
@@ -69,18 +89,24 @@ function initUI() {
         toggleBtn.dataset.initialized = 'true';
     }
 
-    // Control Mapping - use addEventListener for consistency
-    const mappingHeader = document.getElementById('control_mapping_header');
-    if (mappingHeader && !mappingHeader.dataset.initialized) {
-        mappingHeader.style.cursor = 'pointer';
-        mappingHeader.addEventListener('click', () => {
+    // Control Mapping - use new edit button
+    const editMappingBtn = document.getElementById('edit_mapping_btn');
+    if (editMappingBtn && !editMappingBtn.dataset.initialized) {
+        editMappingBtn.addEventListener('click', () => {
+            const isDpadMode = state.driveMode === 'dpad';
+            
             if (state.gamepads.length > 0) {
+                // Controller connected - allow both controller and keyboard mapping
+                renderMappingUI();
+            } else if (isDpadMode) {
+                // No controller but in D-Pad mode - allow keyboard-only mapping
                 renderMappingUI();
             } else {
-                alert('No controller detected. Please connect a controller to map controls.');
+                // Tank mode without controller - not supported
+                alert('Controller required for Tank mode mapping. Please connect a controller or switch to D-Pad mode for keyboard mapping.');
             }
         });
-        mappingHeader.dataset.initialized = 'true';
+        editMappingBtn.dataset.initialized = 'true';
     }
 }
 
@@ -97,7 +123,10 @@ function initGamepad() {
     scanGamepads();
     // Start the main control loop
     if (state.gamepadPollInterval) clearInterval(state.gamepadPollInterval);
-    state.gamepadPollInterval = setInterval(gamepadLoop, 50);
+    state.gamepadPollInterval = setInterval(gamepadLoop, 20);
+    
+    // Initialize drive mode specific handling
+    initDriveModeHandling();
 }
 
 /**
@@ -116,6 +145,19 @@ function initWebSocket() {
         state.ws.onclose = () => {
             state.isConnected = false;
             updateConnectionStatusUI('Disconnected');
+            // Clear intervals when disconnected
+            if (state.gamepadPollInterval) {
+                clearInterval(state.gamepadPollInterval);
+                state.gamepadPollInterval = null;
+            }
+            if (state.watchdogInterval) {
+                clearInterval(state.watchdogInterval);
+                state.watchdogInterval = null;
+            }
+            if (state.tankModeSnapshotInterval) {
+                clearInterval(state.tankModeSnapshotInterval);
+                state.tankModeSnapshotInterval = null;
+            }
             // Optional: try to reconnect
             setTimeout(initWebSocket, 3000);
         };
@@ -151,7 +193,7 @@ async function loadConfiguration() {
         state.view.pipFlipped = !!config.pip_flip;
 
         // Load control config
-        state.driveMode = config.drive_mode || 'tank';
+        state.driveMode = config.drive_mode || 'dpad';
         state.mapping = config.mapping || {};
 
         // Load vehicle config
@@ -160,10 +202,16 @@ async function loadConfiguration() {
             motorFunctions: config.motor_functions || [],
             logicFunctions: config.logic_functions || [],
             vehicleType: config.vehicle_type || '',
+            slowModeDisableFunctions: config.slow_mode_disable_functions || false,
         };
 
         // Update UI with loaded config
         updateAllUI();
+        
+        // Initialize drive mode handling after config is loaded
+        if (typeof initDriveModeHandling === 'function') {
+            initDriveModeHandling();
+        }
 
     } catch (error) {
         console.error('Failed to load configuration:', error);
@@ -188,28 +236,57 @@ async function saveConfiguration(action, payload) {
     }
 }
 
+/**
+ * Initialize drive mode specific handling
+ */
+function initDriveModeHandling() {
+    // Clear any existing tank mode snapshot interval
+    if (state.tankModeSnapshotInterval) {
+        clearInterval(state.tankModeSnapshotInterval);
+        state.tankModeSnapshotInterval = null;
+    }
+    
+    // Set up tank mode snapshot interval if in tank mode
+    if (state.driveMode === 'tank') {
+        state.tankModeSnapshotInterval = setInterval(processTankModeSnapshot, 80); // Every 80ms for tank mode
+    }
+}
+
+/**
+ * Process tank mode snapshot to reduce axis jitter
+ */
+function processTankModeSnapshot() {
+    if (state.driveMode !== 'tank') return;
+    
+    // Take a snapshot of current active controls
+    const currentSnapshot = JSON.stringify(state.activeControls);
+    
+    // Compare with last snapshot and send if different
+    if (currentSnapshot !== state.tankModeSnapshot) {
+        sendControlPacketIfNeeded();
+        state.tankModeSnapshot = currentSnapshot;
+    } else {
+        // No change, but still need to check timing for logic functions
+        sendControlPacketIfNeeded();
+    }
+}
+
 // --- Gamepad Handling & Control Loop ---
 
 /**
  * The main loop for polling the gamepad and sending control commands.
  */
 function gamepadLoop() {
-    if (state.gamepads.length === 0) {
-        // If no gamepad, ensure all motors are stopped.
-        stopAllMotors();
-        return;
-    }
-
-    const gp = navigator.getGamepads()[state.selectedGamepadIndex];
-    if (!gp) return;
-
+    // Get current gamepad
+    const gp = state.gamepads.length > 0 ? navigator.getGamepads()[state.selectedGamepadIndex] : null;
+    
     // Check if mapping modal is open - don't send controls to vehicle
     const mappingModal = document.getElementById('mapping_modal');
     const isModalOpen = mappingModal && mappingModal.style.display === 'block';
 
     // If mapping UI is open, check for input to map but don't send vehicle controls.
     if (state.mappingActive || isModalOpen) {
-        if (state.mappingActive) {
+        if (state.mappingActive && gp) {
             detectMappingInput(gp);
         }
         return; // Don't process regular controls while mapping modal is open
@@ -220,18 +297,40 @@ function gamepadLoop() {
         return;
     }
 
+    // If no gamepad but in D-Pad mode, still allow keyboard controls
+    const isDpadMode = state.driveMode === 'dpad';
+    const hasValidInput = gp || (isDpadMode && Object.keys(state.keyboardState).length > 0);
+    
+    if (!hasValidInput) {
+        // If no gamepad and not D-Pad mode (or no keyboard input), ensure all motors are stopped.
+        stopAllMotors();
+        return;
+    }
+
     // Update UI with live gamepad data (optional, can be throttled)
-    updateBrowserGamepadUI(gp);
+    if (gp) {
+        updateBrowserGamepadUI(gp);
+    }
 
     // Process controls based on drive mode
     if (state.driveMode === 'dpad') {
-        processDpadMode(gp);
+        processDpadMode(gp); // gp can be null, processDpadMode will handle keyboard
     } else {
-        processTankMode(gp);
+        processTankMode(gp); // Tank mode requires gamepad
     }
 
+    processSlowMode(gp);
     processMotorFunctions(gp);
     processLogicFunctions(gp);
+    
+    // Send control packet based on drive mode and timing
+    if (state.driveMode === 'dpad') {
+        // D-pad mode: use immediate sending with every-third logic
+        sendControlPacketIfNeeded();
+    } else {
+        // Tank mode: snapshot approach handled by interval to avoid axis jitter
+        // The tankModeSnapshotInterval will handle sending packets
+    }
 }
 
 /**
@@ -313,12 +412,12 @@ function processDpadMode(gp) {
         else if (right) { leftPower = 1; rightPower = -1; }
 
         processControl(`dpad_left`, leftPower !== 0,
-            () => sendMotorCommand(leftMotor, leftPower > 0 ? 'fwd' : 'rev', 100),
-            () => sendMotorCommand(leftMotor, 'fwd', 0)
+            () => setMotorState(leftMotor, leftPower > 0 ? 'fwd' : 'rev', 100),
+            () => setMotorState(leftMotor, 'fwd', 0)
         );
         processControl(`dpad_right`, rightPower !== 0,
-            () => sendMotorCommand(rightMotor, rightPower > 0 ? 'fwd' : 'rev', 100),
-            () => sendMotorCommand(rightMotor, 'fwd', 0)
+            () => setMotorState(rightMotor, rightPower > 0 ? 'fwd' : 'rev', 100),
+            () => setMotorState(rightMotor, 'fwd', 0)
         );
     }
 
@@ -356,8 +455,8 @@ function processDpadMode(gp) {
         const absPower = Math.max(0, Math.min(100, Math.abs(power || 0) * 100));
 
         processControl(`axis_${motorName}`, absPower > 0,
-            () => sendMotorCommand(motorName, dir, absPower),
-            () => sendMotorCommand(motorName, 'fwd', 0)
+            () => setMotorState(motorName, dir, absPower),
+            () => setMotorState(motorName, 'fwd', 0)
         );
     });
 }
@@ -378,8 +477,8 @@ function processMotorFunctions(gp) {
         const dir = power >= 0 ? 'fwd' : 'rev';
 
         processControl(`motorfn_${fnName}`, power !== 0,
-            () => sendMotorCommand(fnName, dir, 100),
-            () => sendMotorCommand(fnName, 'fwd', 0)
+            () => setMotorState(fnName, dir, 100),
+            () => setMotorState(fnName, 'fwd', 0)
         );
     });
 }
@@ -392,10 +491,54 @@ function processLogicFunctions(gp) {
     state.vehicleConfig.logicFunctions.forEach(fnName => {
         const isActive = isControlActive(gp, state.mapping[`logicfn_${fnName}_btn`]);
         processControl(`logicfn_${fnName}`, isActive,
-            () => sendLogicCommand(fnName, true),
-            () => sendLogicCommand(fnName, false)
+            () => setLogicState(fnName, true),
+            () => setLogicState(fnName, false)
         );
     });
+}
+
+/**
+ * Processes slow mode button
+ * @param {Gamepad} gp - The gamepad object (can be null for keyboard)
+ */
+function processSlowMode(gp) {
+    const slowBtnMap = state.mapping['slow_btn'];
+    let isSlowPressed = false;
+    
+    // Check gamepad input
+    if (gp && slowBtnMap) {
+        if (slowBtnMap.type === 'button' && gp.buttons.length > slowBtnMap.index) {
+            isSlowPressed = gp.buttons[slowBtnMap.index]?.pressed || false;
+        } else if (slowBtnMap.type === 'axis' && gp.axes.length > slowBtnMap.index) {
+            const axisValue = gp.axes[slowBtnMap.index] || 0;
+            isSlowPressed = Math.abs(axisValue) > 0.5;
+        }
+    }
+    
+    // Update slow mode state
+    const wasSlowActive = state.slowModeActive;
+    state.slowModeActive = isSlowPressed;
+    
+    // If slow mode state changed, handle function motor disabling if configured
+    if (wasSlowActive !== isSlowPressed) {
+        handleSlowModeChange(isSlowPressed);
+    }
+}
+
+/**
+ * Handle slow mode state changes
+ * @param {boolean} isSlowActive - Whether slow mode is now active
+ */
+function handleSlowModeChange(isSlowActive) {
+    // Check if slow mode should disable function motors
+    const shouldDisableFunctions = state.vehicleConfig.slowModeDisableFunctions;
+    
+    if (shouldDisableFunctions && isSlowActive) {
+        // Stop all function motors when slow mode activates
+        state.vehicleConfig.motorFunctions.forEach(fnName => {
+            setMotorState(fnName, 'fwd', 0); // Stop motor
+        });
+    }
 }
 
 
@@ -407,21 +550,29 @@ function processLogicFunctions(gp) {
  */
 function isControlActive(gp, mapObj) {
     if (!mapObj) return false;
+    
     if (mapObj.type === 'button') {
         // Ensure button exists on gamepad before checking
-        if (gp.buttons.length > mapObj.index) {
+        if (gp && gp.buttons.length > mapObj.index) {
             return gp.buttons[mapObj.index]?.pressed || false;
         }
         return false;
     }
+    
     if (mapObj.type === 'axis') {
         // Ensure axis exists on gamepad before checking
-        if (gp.axes.length > mapObj.index) {
+        if (gp && gp.axes.length > mapObj.index) {
             const val = gp.axes[mapObj.index] || 0;
             return mapObj.direction === 1 ? val > 0.7 : val < -0.7;
         }
         return false;
     }
+    
+    if (mapObj.type === 'key') {
+        // Check if the mapped key is currently pressed
+        return state.keyboardState[mapObj.code] || false;
+    }
+    
     return false;
 }
 
@@ -454,19 +605,18 @@ function processControl(key, isActive, sendActive, sendStop) {
  * Stops all motors by clearing the control state.
  */
 function stopAllMotors() {
+    // Clear all active controls
+    state.activeControls.axisMotors = {};
+    state.activeControls.functionMotors = {};
+    state.activeControls.logicFunctions = {};
+    
+    // Clear old control state for compatibility
     Object.keys(state.controlState).forEach(key => {
-        if (state.controlState[key].active) {
-            if (key.startsWith('axis_') || key.startsWith('dpad_') || key.startsWith('motorfn_')) {
-                const motorName = key.split('_')[1];
-                // Use proper stop command instead of power 0
-                if (state.isConnected) {
-                    const command = { action: 'stop', name: motorName };
-                    state.ws.send(JSON.stringify(command));
-                }
-            }
-            state.controlState[key].active = false;
-        }
+        state.controlState[key].active = false;
     });
+    
+    // Send the cleared state immediately
+    sendControlPacket();
 }
 
 
@@ -481,6 +631,16 @@ function stopAllMotors() {
 function sendMotorCommand(name, dir, power) {
     if (!state.isConnected) return;
 
+    // Check if this is a function motor and slow mode should block it
+    const isAxisMotor = state.vehicleConfig.axisMotors.includes(name);
+    const isFunctionMotor = state.vehicleConfig.motorFunctions.includes(name);
+    const shouldDisableFunctions = state.vehicleConfig.slowModeDisableFunctions;
+    
+    if (isFunctionMotor && state.slowModeActive && shouldDisableFunctions && power > 0) {
+        // Block function motor commands when slow mode is active and configured to disable them
+        return;
+    }
+
     // Use stop action when power is 0, otherwise use set action
     if (power === 0) {
         const command = { action: 'stop', name };
@@ -488,7 +648,15 @@ function sendMotorCommand(name, dir, power) {
     } else {
         // Power is already in 0-100 range
         const clampedPower = Math.max(0, Math.min(100, power));
-        const command = { action: 'set', name, dir, power: clampedPower };
+        
+        // For axis motors, add slow mode flag if active
+        const command = { 
+            action: 'set', 
+            name, 
+            dir, 
+            power: clampedPower,
+            useSlowMode: isAxisMotor && state.slowModeActive
+        };
         state.ws.send(JSON.stringify(command));
     }
 }
@@ -502,6 +670,149 @@ function sendLogicCommand(id, pressed) {
     if (!state.isConnected) return;
     const command = { action: 'logic_function', id, pressed };
     state.ws.send(JSON.stringify(command));
+}
+
+/**
+ * Updates the active control state for a motor command.
+ * @param {string} name - The name of the motor.
+ * @param {string} dir - The direction ('fwd' or 'rev').
+ * @param {number} power - The power level (0 to 100).
+ */
+function updateMotorState(name, dir, power) {
+    // Check if this is an axis motor or function motor
+    const isAxisMotor = state.vehicleConfig.axisMotors.includes(name);
+    const isFunctionMotor = state.vehicleConfig.motorFunctions.includes(name);
+    
+    if (isAxisMotor) {
+        if (power === 0) {
+            // Remove from active controls when stopped
+            delete state.activeControls.axisMotors[name];
+        } else {
+            // Check if this is a function motor and slow mode should block it
+            const shouldDisableFunctions = state.vehicleConfig.slowModeDisableFunctions;
+            if (isFunctionMotor && state.slowModeActive && shouldDisableFunctions) {
+                // Don't add function motor commands when slow mode blocks them
+                return;
+            }
+            
+            state.activeControls.axisMotors[name] = {
+                dir: dir,
+                power: power,
+                useSlowMode: state.slowModeActive
+            };
+        }
+    } else if (isFunctionMotor) {
+        // Check if this is a function motor and slow mode should block it
+        const shouldDisableFunctions = state.vehicleConfig.slowModeDisableFunctions;
+        if (state.slowModeActive && shouldDisableFunctions && power > 0) {
+            // Don't add function motor commands when slow mode blocks them
+            return;
+        }
+        
+        if (power === 0) {
+            // Remove from active controls when stopped
+            delete state.activeControls.functionMotors[name];
+        } else {
+            state.activeControls.functionMotors[name] = {
+                dir: dir
+            };
+        }
+    }
+}
+
+/**
+ * Updates the active control state for a logic function.
+ * @param {string} id - The ID of the logic function.
+ * @param {boolean} pressed - The state of the function.
+ */
+function updateLogicState(id, pressed) {
+    if (pressed) {
+        state.activeControls.logicFunctions[id] = pressed;
+    } else {
+        delete state.activeControls.logicFunctions[id];
+    }
+}
+
+/**
+ * Sends control packet based on state changes and timing rules
+ * - Immediate send on state changes
+ * - Every 150ms (3rd poll) if no changes but logic functions active
+ * - Handles controller abandonment timeout
+ */
+function sendControlPacketIfNeeded() {
+    if (!state.isConnected) return;
+    
+    const currentControls = JSON.stringify(state.activeControls);
+    const hasChanged = currentControls !== state.lastSentControls;
+    const now = Date.now();
+    
+    // Check if any controls are currently active
+    const hasActiveMotors = Object.keys(state.activeControls.axisMotors).length > 0 || 
+                           Object.keys(state.activeControls.functionMotors).length > 0;
+    const hasActiveLogicFunctions = Object.keys(state.activeControls.logicFunctions).length > 0;
+    const hasAnyActiveControls = hasActiveMotors || hasActiveLogicFunctions;
+    
+    // Update last active time if controls are active
+    if (hasAnyActiveControls) {
+        state.lastControlActiveTime = now;
+    }
+    
+    // Check for controller abandonment (1 minute of inactivity)
+    const timeSinceActive = now - state.lastControlActiveTime;
+    const isAbandoned = timeSinceActive > state.controlAbandonmentMs;
+    
+    if (isAbandoned && hasActiveLogicFunctions && !hasActiveMotors) {
+        // Turn off abandoned logic functions
+        console.log('Controller abandoned - turning off logic functions');
+        state.activeControls.logicFunctions = {};
+        state.lastControlActiveTime = now; // Reset to prevent immediate re-trigger
+        sendControlPacket();
+        return;
+    }
+    
+    // Send immediately on any state change (button press/release)
+    if (hasChanged) {
+        sendControlPacket();
+        return;
+    }
+    
+    // Send every 7th poll (140ms) if ANY controls are active to keep watchdog happy
+    // This prevents the 400ms watchdog timeout from stopping motors during sustained input
+    state.pollCount++;
+    if (state.pollCount >= 7 && hasAnyActiveControls) {
+        sendControlPacket();
+        state.pollCount = 0;
+    }
+}
+
+/**
+ * Sends the current control packet
+ */
+function sendControlPacket() {
+    if (!state.isConnected) return;
+    
+    state.ws.send(JSON.stringify(state.activeControls));
+    state.lastSentControls = JSON.stringify(state.activeControls);
+    state.pollCount = 0; // Reset poll count after sending
+}
+
+/**
+ * State-based motor command that updates the control state instead of sending individual commands.
+ * @param {string} name - The name of the motor.
+ * @param {string} dir - The direction ('fwd' or 'rev').
+ * @param {number} power - The power level (0 to 100).
+ */
+function setMotorState(name, dir, power) {
+    updateMotorState(name, dir, power);
+}
+
+/**
+ * State-based logic function command that updates the control state.
+ * @param {string} id - The ID of the logic function.
+ * @param {boolean} pressed - The state of the function.
+ */
+function setLogicState(id, pressed) {
+    updateLogicState(id, pressed);
 }
 
 
@@ -576,6 +887,75 @@ function updateGamepadStatusUI() {
     }
 }
 
+// --- Keyboard Event Handlers ---
+
+function handleKeyDown(e) {
+    if (!state.keyboardController.enabled) return;
+    
+    // Prevent default browser behavior for mapped keys
+    const key = e.code;
+    if (Object.values(state.keyboardController.mapping).includes(key)) {
+        e.preventDefault();
+    }
+    
+    state.keyboardController.pressedKeys.add(key);
+    
+    // Handle mapping mode
+    if (state.mappingActive && state.mappingActive.inputType === 'keyboard') {
+        e.preventDefault();
+        handleKeyboardMapping(key);
+    }
+}
+
+function handleKeyUp(e) {
+    if (!state.keyboardController.enabled) return;
+    
+    const key = e.code;
+    state.keyboardController.pressedKeys.delete(key);
+    
+    // Prevent default for mapped keys
+    if (Object.values(state.keyboardController.mapping).includes(key)) {
+        e.preventDefault();
+    }
+}
+
+function handleKeyboardMapping(key) {
+    if (!state.mappingActive) return;
+    
+    const { field, motorType } = state.mappingActive;
+    state.keyboardController.mapping[field] = key;
+    
+    // Update UI to show the mapped key
+    const cell = document.querySelector(`[data-field="${field}"]`);
+    if (cell) {
+        cell.textContent = getKeyDisplayName(key);
+        cell.classList.remove('mapping');
+    }
+    
+    state.mappingActive = null;
+    
+    // Save keyboard mapping separately
+    saveConfiguration('save_keyboard_mapping', {
+        keyboard_mapping: state.keyboardController.mapping,
+    });
+}
+
+function getKeyDisplayName(keyCode) {
+    // Convert key codes to readable names
+    const keyMap = {
+        'KeyW': 'W', 'KeyA': 'A', 'KeyS': 'S', 'KeyD': 'D',
+        'ArrowUp': '↑', 'ArrowDown': '↓', 'ArrowLeft': '←', 'ArrowRight': '→',
+        'Space': 'Space', 'ShiftLeft': 'Shift', 'ControlLeft': 'Ctrl',
+        'KeyQ': 'Q', 'KeyE': 'E', 'KeyR': 'R', 'KeyT': 'T',
+        'KeyY': 'Y', 'KeyU': 'U', 'KeyI': 'I', 'KeyO': 'O',
+        'KeyP': 'P', 'KeyF': 'F', 'KeyG': 'G', 'KeyH': 'H',
+        'KeyJ': 'J', 'KeyK': 'K', 'KeyL': 'L', 'KeyZ': 'Z',
+        'KeyX': 'X', 'KeyC': 'C', 'KeyV': 'V', 'KeyB': 'B',
+        'KeyN': 'N', 'KeyM': 'M',
+    };
+    return keyMap[keyCode] || keyCode;
+}
+
 function updateBrowserGamepadUI(gp) {
     const section = document.getElementById('browser_controller_section');
     if (!section) return;
@@ -647,21 +1027,51 @@ function updateViewUI() {
 
     const { mode, areaIP, fpvIP, pipFlipped } = state.view;
 
-    const createVideoEl = (ip) => {
+    const createVideoEl = (ip, port) => {
         if (!ip || ip.trim() === '') return '';
-        return `<video class="video-full" src="http://${ip}/stream" controls autoplay muted loop playsinline></video>`;
+        
+        // Handle different stream formats
+        let streamUrl;
+        if (port && port !== '80' && port !== '') {
+            streamUrl = `http://${ip}:${port}/stream`;
+        } else {
+            streamUrl = `http://${ip}/stream`;
+        }
+        
+        // Use img tag for MJPEG streams which is more compatible than video
+        return `<img class="video-full" src="${streamUrl}" style="width: 100%; height: 100%; object-fit: contain; background: #000;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+                <div style="display: none; color: #fff; text-align: center; line-height: 100%; padding: 20px;">Stream unavailable: ${streamUrl}</div>`;
     };
 
     if (mode === 'area') {
         container.innerHTML = createVideoEl(areaIP);
     } else if (mode === 'fpv') {
-        container.innerHTML = createVideoEl(fpvIP);
+        // Handle FPV IP format - extract IP and port if provided
+        const fpvParts = fpvIP.split(':');
+        const fpvIPOnly = fpvParts[0];
+        const fpvPort = fpvParts[1] || '8081'; // Default to 8081 for FPV
+        container.innerHTML = createVideoEl(fpvIPOnly, fpvPort);
     } else if (mode === 'pip') {
         const mainIP = pipFlipped ? fpvIP : areaIP;
         const pipIP = pipFlipped ? areaIP : fpvIP;
+        
+        // Handle main video (could be area or FPV)
+        let mainContent, pipContent;
+        if (pipFlipped) {
+            // FPV is main
+            const fpvParts = fpvIP.split(':');
+            mainContent = createVideoEl(fpvParts[0], fpvParts[1] || '8081');
+            pipContent = createVideoEl(areaIP);
+        } else {
+            // Area is main  
+            const fpvParts = fpvIP.split(':');
+            mainContent = createVideoEl(areaIP);
+            pipContent = createVideoEl(fpvParts[0], fpvParts[1] || '8081');
+        }
+        
         container.innerHTML = `
-            <div class="video-main">${createVideoEl(mainIP)}</div>
-            <div class="video-pip">${createVideoEl(pipIP)}</div>
+            <div class="video-main">${mainContent}</div>
+            <div class="video-pip">${pipContent}</div>
         `;
     }
 }
@@ -671,6 +1081,10 @@ function updateViewUI() {
 function toggleDriveMode() {
     state.driveMode = (state.driveMode === 'tank') ? 'dpad' : 'tank';
     updateDriveModeUI();
+    
+    // Reinitialize drive mode specific handling
+    initDriveModeHandling();
+    
     saveConfiguration('save_mapping', {
         mapping: state.mapping,
         drive_mode: state.driveMode,
@@ -785,6 +1199,10 @@ function buildMappingTableHTML() {
         });
     }
 
+    // Special Controls
+    html += '<tr><td colspan="3" class="mapping-header">Special Controls</td></tr>';
+    html += buildMappingRow('slow_btn', 'Slow Mode', 'Button');
+
     html += '</tbody></table>';
     return html;
 }
@@ -804,6 +1222,8 @@ function buildMappingRow(field, label, type) {
             mappedTo = `Button ${mapping.index}`;
         } else if (mapping.type === 'axis') {
             mappedTo = `Axis ${mapping.index} (${mapping.direction > 0 ? '+' : '-'})`;
+        } else if (mapping.type === 'key') {
+            mappedTo = `Key: ${mapping.key}`;
         }
     }
     return `
@@ -844,7 +1264,18 @@ function startMapping(field) {
 
     state.mappingActive = { field };
     const label = document.getElementById(`map-label-${field}`);
-    label.textContent = 'Press a button or move an axis...';
+    
+    const isDpadMode = state.driveMode === 'dpad';
+    const hasController = state.gamepads.length > 0;
+    
+    if (isDpadMode && !hasController) {
+        label.textContent = 'Press a keyboard key...';
+    } else if (isDpadMode && hasController) {
+        label.textContent = 'Press controller button/axis or keyboard key...';
+    } else {
+        label.textContent = 'Press a button or move an axis...';
+    }
+    
     label.classList.add('mapping-active');
 
     // Set a timeout to automatically cancel if no input is received
@@ -853,7 +1284,7 @@ function startMapping(field) {
             updateMappingUI(field, state.mapping[field]); // Revert to old mapping
             state.mappingActive = null;
         }
-    }, 5000);
+    }, 8000); // Longer timeout for keyboard input
 }
 
 /**
@@ -903,6 +1334,8 @@ function updateMappingUI(field, mapping) {
             mappedTo = `Button ${mapping.index}`;
         } else if (mapping.type === 'axis') {
             mappedTo = `Axis ${mapping.index} (${mapping.direction > 0 ? '+' : '-'})`;
+        } else if (mapping.type === 'key') {
+            mappedTo = `Key: ${mapping.key}`;
         }
     }
     label.textContent = mappedTo;
@@ -918,4 +1351,67 @@ function saveCurrentMapping() {
     });
     alert('Mapping saved!');
     hideMappingModal();
+}
+
+/**
+ * Initializes keyboard event listening for mapping and gameplay
+ */
+function initKeyboardMapping() {
+    // Keyboard mapping detection (only during active mapping)
+    document.addEventListener('keydown', (e) => {
+        // Handle mapping mode
+        if (state.mappingActive && state.driveMode === 'dpad') {
+            e.preventDefault();
+            
+            // Map the key to a readable string
+            let keyName = e.key;
+            
+            // Convert common keys to readable names
+            const keyMap = {
+                ' ': 'Space',
+                'ArrowUp': '↑',
+                'ArrowDown': '↓', 
+                'ArrowLeft': '←',
+                'ArrowRight': '→'
+            };
+            
+            if (keyMap[keyName]) {
+                keyName = keyMap[keyName];
+            }
+            
+            // Store the keyboard mapping
+            const newMapping = { type: 'key', key: keyName, code: e.code };
+            state.mapping[state.mappingActive.field] = newMapping;
+            updateMappingUI(state.mappingActive.field, newMapping);
+            state.mappingActive = null;
+            return;
+        }
+        
+        // Handle gameplay (D-Pad mode only)
+        if (state.driveMode === 'dpad' && !state.mappingActive) {
+            state.keyboardState[e.code] = true;
+        }
+    });
+    
+    document.addEventListener('keyup', (e) => {
+        // Handle gameplay key release (D-Pad mode only)
+        if (state.driveMode === 'dpad' && !state.mappingActive) {
+            state.keyboardState[e.code] = false;
+        }
+    });
+    
+    // Clear keyboard state when window loses focus
+    window.addEventListener('blur', () => {
+        state.keyboardState = {};
+    });
+}
+
+/**
+ * Check for keyboard input during gameplay (for D-Pad mode)
+ */
+function handleKeyboardInput() {
+    if (state.driveMode !== 'dpad') return;
+    
+    // This would be called from the main game loop to handle keyboard controls
+    // For now, we'll handle it through regular keydown/keyup events in the control processing
 }

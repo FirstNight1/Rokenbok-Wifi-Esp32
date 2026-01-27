@@ -5,36 +5,108 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Motor Testing and Configuration - Rokenbok Vehicle</title>
     <link rel="icon" href="/assets/favicon.ico">
+</head>
+
+<body>
+    {{ header_nav }}
     <style>
-        body {
-            font-family: Arial;
-            margin: 20px;
+        .motor-block {
+            border: 2px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            background: #fafafa;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
-        .motor-block {
-            border: 1px solid #ccc;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-radius: 8px;
+        .power-config {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+        }
+
+        .function-config {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f0f8ff;
+            border-radius: 5px;
+            border-left: 4px solid #27ae60;
         }
 
         button {
             margin: 4px;
             padding: 8px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        input[type="number"], select {
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            padding: 4px;
+            font-family: inherit;
+        }
+
+        input[type="number"]:focus, select:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
         }
 
         #stopAll {
-            background-color: red;
+            background-color: #e74c3c;
             color: white;
-            padding: 12px 22px;
-            font-size: 16px;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(231, 76, 60, 0.3);
+        }
+
+        #stopAll:hover {
+            background-color: #c0392b;
+            box-shadow: 0 6px 12px rgba(231, 76, 60, 0.4);
+        }
+
+        h3 {
+            color: #2c3e50;
+            margin: 0 0 15px 0;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 8px;
+        }
+
+        h4 {
+            margin: 0 0 10px 0;
+            color: #444;
+            font-size: 14px;
         }
     </style>
     <script src="/assets/testing_page.js"></script>
-</head>
+    <script>
+        function setMaxPower(motorName) {
+            const input = document.querySelector(`input[id="${motorName}_max"]`);
+            if (input) {
+                input.value = 65;
+            }
+        }
+    </script>
 
-<body>
-    {{ header_nav }}
     <div style='max-width:700px;margin:32px auto 0 auto;'>
         <h2>Motor Testing and Configuration</h2>
         <h3>Current Vehicle Type: <span style="color: blue;">{{ vtype }}</span></h3>
@@ -42,10 +114,13 @@
         <hr>
         <h3>Motors</h3>
         {{ motor_html }}
-        <br>
-        <div>
-            <button id="stopAll" class="stop-btn" onclick="stopAll()">STOP ALL MOTORS</button>
-            <span id="ws_status" style="margin-left:16px;color:red">WebSocket: Disconnected</span>
+        
+        <hr style="margin: 30px 0;">
+        <div style="text-align: center;">
+            <button id="stopAll" class="stop-btn" onclick="stopAll()" style="background-color: #e74c3c; color: white; padding: 15px 30px; font-size: 18px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer;">STOP ALL MOTORS</button>
+            <div style="margin-top: 15px;">
+                <span id="ws_status" style="color: red; font-weight: bold;">WebSocket: Disconnected</span>
+            </div>
         </div>
     </div>
 </body>

@@ -1,8 +1,13 @@
 import time
 import sys
+
+# Extended delay for ESP32-S3 peripheral initialization  
+time.sleep(3)
+
 import web.web_server
-from RokCommon.variables.vars_store import init_config
+from RokCommon.variables.vars_store import init_config, get_config_value
 from RokCommon.networking.wifi_manager import connect_to_wifi
+from RokCommon.control.network_led import init_network_led
 
 if "/" not in sys.path:
     sys.path.append("/")
@@ -10,13 +15,29 @@ if "/" not in sys.path:
 # Validation configuration and create/load defaults if needed
 cfg = init_config()
 
+# Initialize network status LED (default pin 9, but can be configured)
+led_pin = get_config_value("ledPin", 9)
+led_enabled = get_config_value("ledEnabled", True)
+
+network_led = init_network_led(led_pin)
+
+if led_enabled:
+    # Start network LED startup sequence
+    network_led.start_startup_blink()
+else:
+    # If LED disabled, set override to keep it off
+    network_led.set_override(True, False)
 
 # Connect to Wifi
 wlan = connect_to_wifi()
 
+# Set network LED pattern based on WiFi status
+if led_enabled:
+    network_led.set_wifi_status()
+
 # ---- Run both web server and camera stream in single asyncio event loop ----
 import uasyncio as asyncio
-from cam.camera_stream import start_camera_stream_async
+from cam.camera_stream import start_stream
 import _thread
 
 
@@ -27,13 +48,17 @@ async def main():
         web_server = await web.web_server.start_web_server()
 
         # Give web server a moment to start
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         # Then start camera stream
-        camera_task = asyncio.create_task(start_camera_stream_async(cfg))
+        camera_started = await start_stream()
+        if not camera_started:
+            print("Warning: Camera stream failed to start")
+        else:
+            print("Camera stream started successfully")
 
         # Give camera stream a moment to initialize
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         print("System ready — camera stream running concurrently.")
 

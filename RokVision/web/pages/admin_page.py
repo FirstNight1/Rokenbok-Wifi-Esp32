@@ -8,10 +8,13 @@ import random
 # Import camera reconfiguration function
 try:
     from cam.camera_stream import reconfigure_camera
-
+    # Additional imports for snapshot functionality
+    from camera import Camera, FrameSize, PixelFormat
+    import jpeg
     camera_available = True
 except ImportError:
     print("Camera module not available for admin page")
+    reconfigure_camera = None
     camera_available = False
 
     def reconfigure_camera():
@@ -33,7 +36,9 @@ class AdminPageHandler(PageHandler):
                 "vehicleType": get_config_value("vehicleType"),
                 "vehicleTag": get_config_value("vehicleTag"),
                 "vehicleName": get_config_value("vehicleName"),
-                "cam_type": get_config_value("cam_type", "OV3660"),
+                "ledEnabled": get_config_value("ledEnabled", True),
+                "ledPin": get_config_value("ledPin", 9),
+                "cam_mode": get_config_value("cam_mode", "OV3660_RGB565_SW_JPEG"),
                 "cam_framesize": get_config_value("cam_framesize", 4),
                 "cam_quality": get_config_value("cam_quality", 85),
                 "cam_contrast": get_config_value("cam_contrast", 0),
@@ -132,11 +137,19 @@ def handle_post_legacy(body, cfg):
         new_tag = tag_from_form
 
     # Camera type dropdown logic
-    cam_type = fields.get("cam_type", get_config_value("cam_type", "OV3660"))
-    save_config_value("cam_type", cam_type)
-    if cam_type == "OV2640":
-        save_config_value("cam_pixel_format", "JPEG")
-    else:
+    # Save camera mode and derive individual settings
+    cam_mode = fields.get("cam_mode", get_config_value("cam_mode", "OV3660_RGB565_SW_JPEG"))
+    save_config_value("cam_mode", cam_mode)
+    
+    # Derive pixel format and camera type from mode
+    if cam_mode.startswith("OV2640"):
+        save_config_value("cam_type", "OV2640")
+        if cam_mode == "OV2640_JPEG":
+            save_config_value("cam_pixel_format", "JPEG")
+        else:
+            save_config_value("cam_pixel_format", "RGB565")
+    else:  # OV3660
+        save_config_value("cam_type", "OV3660")
         save_config_value("cam_pixel_format", "RGB565")
 
     # Save settings
@@ -178,6 +191,25 @@ def handle_post_legacy(body, cfg):
         int(fields.get("cam_stream_port", get_config_value("cam_stream_port", 8081))),
     )
 
+    # LED settings
+    save_config_value("ledEnabled", 1 if "ledEnabled" in fields else 0)
+    led_pin = int(fields.get("ledPin", get_config_value("ledPin", 9)))
+    save_config_value("ledPin", led_pin)
+
+    # Update network LED configuration if changed
+    try:
+        from RokCommon.control.network_led import get_network_led
+        network_led = get_network_led()
+        if network_led:
+            led_enabled = 1 if "ledEnabled" in fields else 0
+            if led_enabled and led_pin != -1:
+                network_led.reinit_with_pin(led_pin)
+                # reinit_with_pin now includes automatic status update
+            else:
+                network_led.set_override(True, False)  # Turn off
+    except Exception as e:
+        print(f"LED reconfiguration failed: {e}")
+
     # Trigger camera reconfiguration with new settings
     if camera_available:
         try:
@@ -188,37 +220,10 @@ def handle_post_legacy(body, cfg):
     return None, "/admin"
 
 
-def handle_get():
-    """Legacy handle_get for backward compatibility"""
-    cfg = {
-        "vehicleType": get_config_value("vehicleType"),
-        "vehicleTag": get_config_value("vehicleTag"),
-        "vehicleName": get_config_value("vehicleName"),
-        "cam_type": get_config_value("cam_type", "OV3660"),
-        "cam_framesize": get_config_value("cam_framesize", 4),
-        "cam_quality": get_config_value("cam_quality", 85),
-        "cam_contrast": get_config_value("cam_contrast", 0),
-        "cam_brightness": get_config_value("cam_brightness", 0),
-        "cam_saturation": get_config_value("cam_saturation", 0),
-        "cam_vflip": get_config_value("cam_vflip", 0),
-        "cam_hmirror": get_config_value("cam_hmirror", 0),
-        "cam_speffect": get_config_value("cam_speffect", 0),
-        "cam_stream_port": get_config_value("cam_stream_port", 8081),
-    }
-    html = build_admin_page(cfg)
-    return "200 OK", "text/html", html
-
-
-def _valid_vehicle_types():
-    """Return set of valid vehicle type names"""
-    return {t["typeName"] for t in VEHICLE_TYPES}
-
-
-# For backwards compatibility, make this module callable as both:
-# - admin_handler (unified interface)
-# - admin_page module with handle_get/handle_post functions (legacy interface)
+# Make unified handler accessible as module functions
 handle_get = admin_handler.handle_get
 handle_post = admin_handler.handle_post
+
 
 
 def build_admin_page(cfg):
@@ -280,13 +285,18 @@ def build_admin_page(cfg):
             ]
         )
 
-        # Camera type dropdown (OV2640/OV3660)
-        cam_type = cfg.get("cam_type", "OV3660")
-        cam_type_options = []
-        for val, label in [("OV2640", "OV2640 (JPEG, fast)"), ("OV3660", "OV3660 (RGB565, software JPEG)")]:
-            selected = "selected" if cam_type == val else ""
-            cam_type_options.append(f'<option value="{val}" {selected}>{label}</option>')
-        cam_type_options_html = "\n                    ".join(cam_type_options)
+        # Camera mode dropdown with all supported options
+        cam_mode = cfg.get("cam_mode", "OV3660_RGB565_SW_JPEG")
+        cam_mode_options = []
+        mode_options = [
+            ("OV2640_JPEG", "OV2640 - Hardware JPEG"),
+            ("OV3660_RGB565", "OV3660 - RGB565 + Software JPEG"),
+            ("OV3660_RGB565_SW_JPEG", "OV3660 - RGB565 + Software JPEG")
+        ]
+        for val, label in mode_options:
+            selected = "selected" if cam_mode == val else ""
+            cam_mode_options.append(f'<option value="{val}" {selected}>{label}</option>')
+        cam_mode_options_html = "\n                    ".join(cam_mode_options)
 
         # Load main admin page template
         html = _load_template("web/pages/assets/admin_page.html")
@@ -310,9 +320,7 @@ def build_admin_page(cfg):
             ("0", "QQVGA (160x120)"),
             ("3", "HQVGA (240x176)"),
             ("4", "QVGA (320x240) - Recommended"),
-            ("5", "CIF (400x296)"),
-            ("6", "VGA (640x480)"),
-            ("7", "SVGA (800x600)"),
+            ("5", "CIF (400x296)")
         ]
 
         for value, label in framesize_choices:
@@ -339,18 +347,23 @@ def build_admin_page(cfg):
                 f'<option value="{value}" {selected}>{label}</option>'
             )
         speffect_options_html = "\n                    ".join(speffect_options)
-
-        # Camera type dropdown (OV2640/OV3660)
-        cam_type = cfg.get("cam_type", "OV3660")
-        cam_type_options = []
-        for val, label in [("OV2640", "OV2640 (JPEG, fast)"), ("OV3660", "OV3660 (RGB565, software JPEG)")]:
-            selected = "selected" if cam_type == val else ""
-            cam_type_options.append(f'<option value="{val}" {selected}>{label}</option>')
-        cam_type_options_html = "\n                    ".join(cam_type_options)
-
         # Generate checkbox states
         vflip_checked = "checked" if vflip == "1" else ""
         hmirror_checked = "checked" if hmirror == "1" else ""
+        
+        # LED settings
+        led_enabled = cfg.get("ledEnabled", True)
+        led_pin = cfg.get("ledPin", 9)
+        led_enabled_checked = "checked" if led_enabled else ""
+        
+        # Build LED pin dropdown using standard ESP32-S3 mapping
+        from RokCommon.control.network_led import NETWORK_LED_PINS
+        available_pins = [1, 2, 3, 4, 5, 6, 43, 44, 7, 8, 9, 10, 21, 41, 42]
+        led_pin_options = "<option value='-1' {}>Disabled</option>".format("selected" if led_pin == -1 else "")
+        for pin in available_pins:
+            selected = "selected" if pin == led_pin else ""
+            pin_name = NETWORK_LED_PINS.get(pin, f"GPIO{pin}")
+            led_pin_options += f"<option value='{pin}' {selected}>{pin_name}</option>"
 
         replacements = {
             "{{ header_nav }}": header_nav,
@@ -358,7 +371,7 @@ def build_admin_page(cfg):
             "{{ vehicle_tag }}": cfg.get("vehicleTag", "") or "",
             "{{ vehicle_name }}": cfg.get("vehicleName", "") or "",
             "{{ framesize_options }}": framesize_options_html,
-            "{{ cam_type_options }}": cam_type_options_html,
+            "{{ cam_mode_options }}": cam_mode_options_html,
             "{{ speffect_options }}": speffect_options_html,
             "{{ vflip_checked }}": vflip_checked,
             "{{ hmirror_checked }}": hmirror_checked,
@@ -371,6 +384,8 @@ def build_admin_page(cfg):
             "{{ cam_hmirror }}": hmirror,
             "{{ cam_speffect }}": speffect,
             "{{ cam_stream_port }}": stream_port,
+            "{{ led_enabled_checked }}": led_enabled_checked,
+            "{{ led_pin_options }}": led_pin_options,
             "{{vehicle_type_map}}": vehicle_type_js,
         }
 
@@ -382,3 +397,141 @@ def build_admin_page(cfg):
     except Exception as e:
         print(f"Error building admin page: {e}")
         return f"<html><body><h2>Error loading admin page: {e}</h2></body></html>"
+
+
+async def snapshot_handler(request):
+    """Capture high-resolution snapshot with dedicated camera instance"""
+    
+    if not camera_available:
+        return Response(
+            status="500 Internal Server Error",
+            content_type="text/plain",
+            body="Camera not available"
+        )
+    
+    try:
+        # Determine camera type and maximum resolution
+        cam_mode = get_config_value("cam_mode", "OV3660_RGB565_SW_JPEG")
+        
+        if cam_mode.startswith("OV2640"):
+            # OV2640 - use SXGA (1280x1024) for reliable high-resolution snapshots
+            frame_size = FrameSize.SXGA
+            width, height = 1280, 1024
+            camera_type = "OV2640 (1.3MP)"
+        else:
+            # OV3660 is 3MP sensor - use QXGA (2048x1536) for maximum resolution  
+            frame_size = FrameSize.QXGA
+            width, height = 2048, 1536
+            camera_type = "OV3660 (3MP)"
+        
+        # Stop streaming camera to free hardware for snapshot
+        try:
+            from cam.camera_stream import cleanup_camera
+            cleanup_camera()
+        except Exception as e:
+            print(f"Warning: Failed to cleanup streaming camera: {e}")
+        
+        # Create dedicated snapshot camera instance (hardware exclusive)
+        snapshot_cam = Camera(
+            pixel_format=PixelFormat.RGB565,
+            frame_size=frame_size,
+            fb_count=1
+        )
+        
+        # Let camera stabilize before applying settings
+        import time
+        time.sleep_ms(200)
+        
+        # Apply current camera settings to snapshot camera
+        quality = get_config_value("cam_quality", 95)  # Higher quality for snapshots
+        contrast = get_config_value("cam_contrast", 1)
+        brightness = get_config_value("cam_brightness", 0)
+        saturation = get_config_value("cam_saturation", 0)
+        vflip = get_config_value("cam_vflip", 0)
+        hmirror = get_config_value("cam_hmirror", 0)
+        speffect = get_config_value("cam_speffect", 0)
+        
+        snapshot_cam.set_quality(quality)
+        snapshot_cam.set_contrast(contrast)
+        snapshot_cam.set_brightness(brightness)
+        snapshot_cam.set_saturation(saturation)
+        snapshot_cam.set_vflip(vflip)
+        snapshot_cam.set_hmirror(hmirror)
+        snapshot_cam.set_special_effect(speffect)
+        
+        # Test camera capture before creating encoder
+        test_frame = snapshot_cam.capture()
+        if not test_frame or len(test_frame) < 1000:
+            raise Exception("Failed to capture initial frame. Camera may be busy or misconfigured.")
+        del test_frame
+        
+        # Create dedicated JPEG encoder for this snapshot
+        jpeg_encoder = jpeg.Encoder(
+            width=width, height=height, 
+            pixel_format="RGB565_BE", 
+            quality=quality
+        )
+        
+        # Brief pause for camera to stabilize
+        import time
+        time.sleep_ms(100)
+        
+        # Capture frame
+        frame = snapshot_cam.capture()
+        if not frame or len(frame) < 1000:
+            raise Exception("Failed to capture valid high-res frame")
+        
+        # Encode as JPEG
+        jpeg_frame = jpeg_encoder.encode(frame)
+        if not jpeg_frame or len(jpeg_frame) < 100:
+            raise Exception("Failed to encode high-res JPEG")
+        
+        # Clean up all resources immediately
+        del frame
+        snapshot_cam.deinit()
+        del snapshot_cam
+        del jpeg_encoder
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+        
+        # Restart streaming camera - must deinit/reinit camera hardware for resolution change
+        try:
+            from cam.camera_stream import cleanup_camera, init_camera
+            
+            # Brief pause for cleanup
+            import uasyncio as asyncio
+            await asyncio.sleep_ms(500)
+            
+            # Reinitialize streaming camera at original resolution
+            init_camera()
+                
+        except Exception as restart_error:
+            print(f"Camera restart error: {restart_error}")
+            # Continue anyway - snapshot was successful
+        
+        # Return JPEG image
+        return Response(
+            status="200 OK",
+            content_type="image/jpeg",
+            body=jpeg_frame
+        )
+        
+    except Exception as e:
+        print(f"Snapshot error: {e}")
+        # Ensure cleanup on error
+        try:
+            if 'snapshot_cam' in locals():
+                snapshot_cam.deinit()
+            if 'frame' in locals():
+                del frame
+            if 'jpeg_encoder' in locals():
+                del jpeg_encoder
+        except:
+            pass
+        return Response(
+            status="500 Internal Server Error",
+            content_type="text/plain",
+            body=f"Snapshot failed: {e}"
+        )

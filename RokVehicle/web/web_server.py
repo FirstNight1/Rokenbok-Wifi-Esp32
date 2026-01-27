@@ -1,14 +1,11 @@
 import uasyncio as asyncio
+import time
 import sys
-from web.pages import (
-    admin_page,
-    testing_page,
-    play_page,
-)
+from web.pages.admin_page import admin_handler
+from web.pages.testing_page import testing_handler
+from web.pages.play_page import play_handler
 from RokCommon.ota.simple_ota import simple_ota_handler
-from RokCommon.web import handle_request, create_routes_from_modules
 from RokCommon.web.pages import wifi_page, home_page
-from RokCommon.web.api_handler import create_api_handler
 from RokCommon.variables.vars_store import get_config_value
 import gc
 import hashlib
@@ -33,45 +30,77 @@ _template_cache = {}
 _cache_enabled = True
 
 
-# Create routes using the unified home page
+def get_effective_busy_status():
+    """Get the effective busy status considering override settings"""
+    from RokCommon.variables.vars_store import get_config_value
+    
+    override = get_config_value("busy_status_override", None)
+    if override == "on":
+        return True
+    elif override == "off":
+        return False
+    else:  # override is None, "clear", or any other value
+        # Use normal websocket connection status
+        return bool(WS_CLIENT)
+
+
+def set_busy_status_override(state):
+    """Set busy status override state (on/off/clear)"""
+    from RokCommon.variables.vars_store import save_config_value
+    
+    if state in ["on", "off"]:
+        save_config_value("busy_status_override", state)
+    else:
+        # "clear" or any other value clears the override
+        save_config_value("busy_status_override", None)
+    
+    return get_effective_busy_status()
+
+
+# Create routes using the unified handlers
 ROUTES = {
     "/": home_page.home_handler,
     "/wifi": wifi_page.wifi_handler,
-    "/admin": admin_page,
-    "/testing": testing_page,
-    "/play": play_page,
-    "/ota": simple_ota_handler,  # Simple work-in-progress message
+    "/admin": admin_handler,
+    "/testing": testing_handler,
+    "/play": play_handler,
+    "/ota": simple_ota_handler,
 }
 
 
 # WebSocket handler for vehicle control
 def vehicle_websocket_handler(text, writer):
     """Handle WebSocket messages for vehicle control"""
+    import time
+    start_time = time.ticks_ms()
+    
     try:
         import json
-        import control.motor_controller as mc
+        import control.control_processor as cp
 
+        json_parse_time = time.ticks_ms()
         pkt = json.loads(text)
+        
         if not isinstance(pkt, dict):
             return
 
-        # Dispatch commands (set/stop/stop_all)
-        action = pkt.get("action")
-        if mc and action == "set":
-            name = pkt.get("name")
-            dir = pkt.get("dir", "fwd")
-            power = float(pkt.get("power", 0))
-            mc.motor_controller.set_motor(name, dir, power)
-        elif mc and action == "stop":
-            mc.motor_controller.stop_motor(pkt.get("name"))
-        elif mc and action == "stop_all":
-            mc.motor_controller.stop_all()
+        # Use control processor for all packet handling
+        if cp and cp.get_control_processor():
+            cp.get_control_processor().process_packet(pkt)
+        else:
+            print("ERROR: Control processor not available")
+            
     except Exception as e:
-        print(f"WebSocket handler error: {e}")
-
-
-# Create simplified API handler
-api_handler = create_api_handler()
+        end_time = time.ticks_ms()
+        total_time = time.ticks_diff(end_time, start_time)
+        print(f"WebSocket handler error: {e} (took {total_time}ms)")
+        # Try to emergency stop all motors on any error
+        try:
+            import control.control_processor as cp
+            if cp and cp.get_control_processor():
+                cp.get_control_processor().stop_all_motors()
+        except:
+            pass
 
 
 def _load_template(filepath):
@@ -174,6 +203,9 @@ async def precache_critical_assets():
 
 async def handle_client(reader, writer):
     """Client handler with WebSocket, API, and unified page handling"""
+    client_ip = writer.get_extra_info('peername')[0] if writer.get_extra_info('peername') else 'unknown'
+    start_time = time.time()
+    
     try:
         # Read request line
         req_line = await reader.readline()
@@ -246,8 +278,65 @@ async def handle_client(reader, writer):
             await _handle_legacy_status(writer)
             return
 
-        # Use unified handler for page routes
-        await handle_request(reader, writer, ROUTES, _load_template)
+        # Handle page routes with unified handlers
+        page_handler = ROUTES.get(path)
+        if page_handler:
+            # Read body for POST requests
+            body = ""
+            if method == "POST":
+                content_length = int(headers.get("content-length", 0))
+                if content_length > 0:
+                    body_bytes = await reader.read(content_length)
+                    body = body_bytes.decode("utf-8") if isinstance(body_bytes, bytes) else str(body_bytes)
+
+            # Create Request object
+            from RokCommon.web.request_response import Request, Response
+            request = Request(
+                method=method,
+                path=path,
+                query_string=query_string,
+                body=body,
+                headers=headers,
+                content_type=headers.get("content-type", ""),
+            )
+
+            # Call the unified handler
+            response = None
+            try:
+                if hasattr(page_handler, 'handle_get') and method == 'GET':
+                    response = page_handler.handle_get(request)
+                elif hasattr(page_handler, 'handle_post') and method == 'POST':
+                    response = page_handler.handle_post(request)
+                elif callable(page_handler):
+                    # Handle simple function handlers (like OTA)
+                    response = page_handler(request)
+                else:
+                    # Fallback - try calling as function
+                    response = page_handler(request)
+            except Exception as e:
+                # Handler failed, create error response
+                from RokCommon.web.request_response import Response
+                response = Response.server_error(f"Handler error: {str(e)}")
+
+            # Ensure response is always a valid Response object
+            if response is None:
+                from RokCommon.web.request_response import Response
+                response = Response.server_error("Handler returned None")
+
+            # Send response
+            from RokCommon.web.request_response import send_response
+            await send_response(writer, response)
+            
+            # Clean up request object
+            if hasattr(request, 'clear_file_contents'):
+                request.clear_file_contents()
+            
+        else:
+            # 404 for unknown paths
+            error_html = "<html><body><h1>404 Not Found</h1></body></html>"
+            response_headers = f"HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: {len(error_html)}\r\n\r\n"
+            writer.write(response_headers.encode() + error_html.encode())
+            await writer.drain()
 
     except OSError as e:
         if getattr(e, "errno", None) != 104:  # Ignore ECONNRESET
@@ -259,6 +348,8 @@ async def handle_client(reader, writer):
             await writer.aclose()
         except Exception:
             pass
+        # Force garbage collection
+        import gc
         gc.collect()
 
 
@@ -378,11 +469,109 @@ async def _handle_static_assets(writer, path):
 async def _handle_api_request(writer, method, headers, path, query_string, body=""):
     """Handle API requests"""
     try:
-        # Simple response for status
+        # Enhanced status response for RokVehicle
         if path == "/api/status":
-            response = '{"status": "ok", "device": "RokVehicle", "uptime": 0}'
+            from RokCommon.variables.vars_store import get_config_value
+            import gc
+            
+            # Get device information
+            vehicle_name = get_config_value("vehicleName", "RokVehicle Device")
+            vehicle_type = get_config_value("vehicleType", "vehicle")
+            vehicle_tag = get_config_value("vehicleTag", "")
+            project_type = get_config_value("projectType", "vehicle")
+            
+            # Get temperature if available
+            mcu_temp = "N/A"
+            try:
+                if esp32:
+                    temp_c = esp32.mcu_temperature()
+                    mcu_temp = round(temp_c, 1)
+            except Exception:
+                pass
+            
+            # Get motor controller status if available
+            motor_status = "N/A"
+            active_motors = 0
+            travel_limited = []
+            try:
+                import control.motor_controller as mc
+                if hasattr(mc, "motor_controller"):
+                    motor_status = "Available"
+                    # Count active motors if possible
+                    if hasattr(mc.motor_controller, "motors"):
+                        active_motors = len([m for m in mc.motor_controller.motors.values() if getattr(m, "is_active", False)])
+                    # Get travel limited motors from control processor
+                    try:
+                        from control.control_processor import get_control_processor
+                        cp = get_control_processor()
+                        if cp:
+                            travel_limited = cp.get_travel_limited_motors()
+                    except Exception:
+                        travel_limited = []
+            except Exception:
+                pass
+            
+            # Get WiFi signal strength
+            wifi_signal = 0
+            try:
+                import network
+                sta = network.WLAN(network.STA_IF)
+                if sta.active() and sta.isconnected():
+                    wifi_signal = sta.status('rssi')
+                else:
+                    wifi_signal = 0  # AP mode or disconnected
+            except Exception:
+                wifi_signal = 0
+            
+            # Create enhanced status response
+            status_data = {
+                "status": "ok",
+                "device": "RokVehicle", 
+                "deviceName": vehicle_name,
+                "deviceType": vehicle_type,
+                "deviceTag": vehicle_tag,
+                "projectType": project_type,
+                "mcuTemp": mcu_temp,
+                "memoryFree": gc.mem_free(),
+                "motorController": motor_status,
+                "activeMotors": active_motors,
+                "busy": get_effective_busy_status(),
+                "busyStatusOverride": get_config_value("busy_status_override", None),
+                "travelLimitedMotors": travel_limited,
+                "wifiSignal": wifi_signal,
+                "uptime": 0
+            }
+            
+            import ujson as json
+            response = json.dumps(status_data)
             response_headers = f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(response)}\r\n\r\n"
             writer.write(response_headers.encode() + response.encode())
+        
+        elif path == "/api/busy-override" and method == "POST":
+            # Handle busy status override
+            try:
+                import ujson as json
+                data = json.loads(body) if body else {}
+                state = data.get("state", "clear")
+                
+                effective_busy = set_busy_status_override(state)
+                
+                response_data = {
+                    "success": True,
+                    "busyStatusOverride": get_config_value("busy_status_override", None),
+                    "effectiveBusyStatus": effective_busy,
+                    "message": f"Busy status override set to '{state}'"
+                }
+                
+                response = json.dumps(response_data)
+                response_headers = f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(response)}\r\n\r\n"
+                writer.write(response_headers.encode() + response.encode())
+                
+            except Exception as e:
+                error_response = f'{{"error": "Failed to set busy override: {str(e)}"}}'  
+                response_headers = f"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {len(error_response)}\r\n\r\n"
+                writer.write(response_headers.encode() + error_response.encode())
+        
         else:
             # 404 for other API endpoints
             response = '{"error": "API endpoint not found"}'
@@ -539,10 +728,12 @@ async def _handle_websocket(reader, writer, headers, path):
         try:
             frame = await _ws_recv_frame(reader)
             if not frame:
+                print("WebSocket: No frame received, closing connection")
                 break
             opcode, data = frame
             # opcode 8 = close
             if opcode == 8:
+                print("WebSocket: Close frame received")
                 break
             if opcode == 9:
                 await _ws_send_text(writer, "")
@@ -553,6 +744,7 @@ async def _handle_websocket(reader, writer, headers, path):
             try:
                 text = data.decode()
             except Exception as e:
+                print(f"WebSocket: Error decoding message: {e}")
                 continue
 
             # parse JSON command
@@ -561,32 +753,42 @@ async def _handle_websocket(reader, writer, headers, path):
             try:
                 pkt = json.loads(text)
             except Exception as e:
+                print(f"WebSocket: JSON parse error: {e}")
                 pkt = None
 
             if not pkt or not isinstance(pkt, dict):
                 continue
 
-            # dispatch commands (set/stop/stop_all)
+            # Check if this is a control packet (has axisMotors, functionMotors, etc.) or action packet
             action = pkt.get("action")
-            if mc and action == "set":
-                name = pkt.get("name")
-                dir = pkt.get("dir", "fwd")
-                power = float(pkt.get("power", 0))
-                mc.motor_controller.set_motor(name, dir, power)
-            elif mc and action == "stop":
-                mc.motor_controller.stop_motor(pkt.get("name"))
-            elif mc and action == "stop_all":
-                mc.motor_controller.stop_all()
+            if action:
+                # Handle legacy action-based packets (set/stop/stop_all)
+                if mc and action == "set":
+                    name = pkt.get("name")
+                    dir = pkt.get("dir", "fwd")
+                    power = float(pkt.get("power", 0))
+                    mc.motor_controller.set_motor(name, dir, power)
+                elif mc and action == "stop":
+                    mc.motor_controller.stop_motor(pkt.get("name"))
+                elif mc and action == "stop_all":
+                    mc.motor_controller.stop_all()
+            else:
+                # Handle modern control packets via control processor
+                vehicle_websocket_handler(text, writer)
 
         except Exception as e:
+            print(f"WebSocket: Error in message loop: {e}")
             break
 
+    print("WebSocket: Connection closing, cleaning up...")
     try:
         await writer.aclose()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"WebSocket: Error closing writer: {e}")
     # unregister client
-    WS_CLIENT = None
+    if WS_CLIENT and WS_CLIENT[0] == writer:
+        WS_CLIENT = None
+        print("WebSocket: Client unregistered")
 
 
 async def _keep_alive():
@@ -602,13 +804,27 @@ def run():
     loop.create_task(start_web_server())
     loop.create_task(_keep_alive())
 
-    # If MotorController is present, schedule its async watchdog
+    # Initialize control processor with motor and function controllers
     try:
         import control.motor_controller as mc
+        import control.control_processor as cp
 
-        if hasattr(mc, "motor_controller") and hasattr(mc.motor_controller, "watchdog"):
-            loop.create_task(mc.motor_controller.watchdog())
-    except Exception:
-        pass
+        if hasattr(mc, "motor_controller"):
+            # Get function controller from motor controller if available
+            function_controller = None
+            if hasattr(mc.motor_controller, "function_controller"):
+                function_controller = mc.motor_controller.function_controller
+            
+            # Create and set global control processor
+            control_processor = cp.ControlProcessor(mc.motor_controller, function_controller)
+            cp.set_control_processor(control_processor)
+            print("Control processor initialized")
+        else:
+            print("Motor controller not available for control processor")
+    except Exception as e:
+        print(f"Control processor initialization error: {e}")
 
+    # Motor controller no longer has a watchdog - control_processor handles safety
+    # Control processor watchdog is started automatically when initialized
+    
     loop.run_forever()

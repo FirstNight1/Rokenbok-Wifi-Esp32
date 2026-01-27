@@ -1,12 +1,26 @@
 import uasyncio as asyncio
 import sys
-from web.pages import admin_page, testing_page
-from RokCommon.ota.simple_ota import simple_ota_handler
-from RokCommon.web import handle_request, create_routes_from_modules
+from web.pages.admin_page import admin_handler, snapshot_handler
+from web.pages.testing_page import testing_handler
 from RokCommon.web.pages import wifi_page, home_page
-from RokCommon.web.api_handler import create_api_handler
 from RokCommon.variables.vars_store import get_config_value
 import gc
+
+# Import OTA handler directly
+try:
+    from RokCommon.ota.simple_ota import simple_ota_handler
+except Exception as e:
+    # Fallback handler if import fails
+    def simple_ota_handler(request):
+        class FallbackResponse:
+            def __init__(self):
+                self.status = '200 OK'
+                self.content_type = 'text/html'
+                self.body = '<html><body><h1>OTA Handler Import Failed</h1></body></html>'
+                self.redirect = None
+            def to_bytes(self):
+                return self.body.encode('utf-8')
+        return FallbackResponse()
 
 # Import performance monitoring
 try:
@@ -30,9 +44,10 @@ _cache_enabled = True
 ROUTES = {
     "/": home_page.home_handler,
     "/wifi": wifi_page.wifi_handler,
-    "/admin": admin_page,
-    "/testing": testing_page.testing_handler,
-    "/ota": simple_ota_handler,  # Simple work-in-progress message
+    "/admin": admin_handler,
+    "/testing": testing_handler,
+    "/ota": simple_ota_handler,
+    "/api/snapshot": snapshot_handler,
 }
 
 
@@ -42,7 +57,7 @@ def _load_template(path):
         return _template_cache[path]
     
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, 'r') as f:
             content = f.read()
         
         if _cache_enabled:
@@ -52,6 +67,83 @@ def _load_template(path):
     except Exception as e:
         print(f"Template load error for {path}: {e}")
         return None
+
+
+def clear_template_cache():
+    """Clear template cache to free memory or reload templates"""
+    global _template_cache
+    _template_cache.clear()
+    gc.collect()
+
+
+async def precache_critical_assets():
+    """Pre-load critical static assets to improve page load performance"""
+    global _cache_enabled
+
+    if not _cache_enabled:
+        return
+
+    print("Pre-caching critical assets...")
+
+    # Critical assets for RokVision (camera interface focused)
+    critical_assets = [
+        "admin_page.html",  # Admin interface with camera controls
+        "testing_page.html",  # Testing page
+    ]
+
+    # RokCommon shared assets
+    rokcommon_assets = [
+        "home_page.html",  # Home page
+        "wifi_page.html",  # WiFi configuration page
+        "header_nav.html",  # Navigation header
+        "ota_page.html",   # OTA update page
+    ]
+
+    # Get base directory for assets
+    base_file = __file__
+    if "/" in base_file:
+        base_dir = base_file.rsplit("/", 1)[0]
+    elif "\\" in base_file:
+        base_dir = base_file.rsplit("\\", 1)[0]
+    else:
+        base_dir = "."
+
+    cached_count = 0
+    total_size = 0
+
+    # Cache local assets
+    for asset in critical_assets:
+        fpath = "/".join([base_dir.rstrip("/"), "pages", "assets", asset])
+        content = _load_template(fpath)
+        if content:
+            cached_count += 1
+            total_size += len(content)
+            print(f"  Cached: {asset} ({len(content)} bytes)")
+        else:
+            print(f"  Failed to cache: {asset}")
+
+    # Cache RokCommon assets
+    for asset in rokcommon_assets:
+        fpath = f"RokCommon/web/pages/assets/{asset}"
+        content = _load_template(fpath)
+        if content:
+            cached_count += 1
+            total_size += len(content)
+            print(f"  Cached: RokCommon/{asset} ({len(content)} bytes)")
+        else:
+            print(f"  Failed: {asset}")
+
+        # Check memory pressure and yield control
+        if memory_pressure_check and memory_pressure_check():
+            print(
+                f"  Memory pressure detected, stopping pre-cache after {cached_count} assets"
+            )
+            break
+
+        await asyncio.sleep_ms(1)  # Yield to prevent blocking
+
+    print(f"Pre-cache complete: {cached_count} assets, {total_size} bytes total")
+    gc.collect()
 
 
 async def handle_client(reader, writer):
@@ -114,9 +206,9 @@ async def handle_client(reader, writer):
             await _handle_static_assets(writer, path)
             return
 
-        # Handle legacy status endpoint (redirect to API)
-        if path == "/status":
-            await _handle_legacy_status(writer)
+        # Redirect status to API
+        elif path == "/status":
+            await write_http_redirect(writer, "/api/status")
             return
 
         # Handle page routes directly
@@ -141,19 +233,27 @@ async def handle_client(reader, writer):
                 content_type=headers.get("content-type", ""),
             )
 
-            # Call the handler directly
-            if hasattr(page_handler, 'handle_get') and method == 'GET':
-                response = page_handler.handle_get(request)
-            elif hasattr(page_handler, 'handle_post') and method == 'POST':
-                response = page_handler.handle_post(request)
-            elif hasattr(page_handler, '__call__'):
-                response = page_handler(request)
-            else:
-                response = page_handler.handle_get(request)
+            # Call the handler directly with proper error handling
+            response = None
+            try:
+                if hasattr(page_handler, 'handle_get') and method == 'GET':
+                    response = page_handler.handle_get(request)
+                elif hasattr(page_handler, 'handle_post') and method == 'POST':
+                    response = page_handler.handle_post(request)
+                elif callable(page_handler):
+                    # Handle simple function handlers (like OTA)
+                    response = page_handler(request)
+                else:
+                    # Fallback - try calling as function
+                    response = page_handler(request)
+            except Exception as e:
+                # Handler failed, create error response
+                from RokCommon.web.request_response import Response
+                response = Response.server_error(f"Handler error: {str(e)}")
 
-            # Fallback: ensure response is always a valid Response object
+            # Ensure response is always a valid Response object
             if response is None:
-                # Handler returned None, send server error response
+                from RokCommon.web.request_response import Response
                 response = Response.server_error("Handler returned None")
 
             # Send response
@@ -164,48 +264,28 @@ async def handle_client(reader, writer):
             if hasattr(request, 'clear_file_contents'):
                 request.clear_file_contents()
             
-            # Force garbage collection immediately after upload
+            # Force garbage collection
             import gc
             gc.collect()
             
-            # Longer delay for upload responses to prevent TCP reset
-            if request.path == '/ota' and request.method == 'POST':
-                await asyncio.sleep(0.5)  # Extended delay for OTA uploads to allow memory cleanup
-            else:
-                await asyncio.sleep(0.1)
         else:
             # 404 for unknown paths
             error_html = "<html><body><h1>404 Not Found</h1></body></html>"
             response_headers = f"HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: {len(error_html)}\r\n\r\n"
             writer.write(response_headers.encode() + error_html.encode())
             await writer.drain()
-            
-            # Small delay before closing connection
-            await asyncio.sleep(0.1)
 
-        # Safer connection cleanup
-        try:
-            await writer.aclose()
-        except Exception as close_error:
-            pass
-            # Don't re-raise, connection cleanup errors are not critical
-
-    except UnicodeError as unicode_error:
-        # Known MicroPython bug: Empty UnicodeError during cleanup after processing binary files
-        # This is harmless - the request was processed successfully before this error
-        # Ignore harmless MicroPython UnicodeError during cleanup
-        try:
-            await writer.aclose()
-        except Exception as close_error:
-            pass
-            pass
+    except OSError as e:
+        if getattr(e, "errno", None) != 104:  # Ignore ECONNRESET
+            print(f"Network error: {e}")
     except Exception as e:
-        pass
+        print(f"Error handling request: {e}")
+    finally:
         try:
             await writer.aclose()
-        except Exception as close_error:
+        except Exception:
             pass
-            pass
+        gc.collect()
 
 
 async def _handle_api_request(writer, method, headers, path, query_string, body):
@@ -256,6 +336,67 @@ async def _handle_api_request(writer, method, headers, path, query_string, body)
                 response = f'{{"status": "error", "message": "Stop failed: {e}"}}'
             response_headers = f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(response)}\r\n\r\n"
             writer.write(response_headers.encode() + response.encode())
+        elif path == "/api/snapshot":
+            # Handle snapshot endpoint
+            try:
+                from RokCommon.web.request_response import Request
+                request = Request(
+                    method=method,
+                    path=path,
+                    query_string=query_string,
+                    body=body,
+                    headers=headers,
+                    content_type=headers.get("content-type", ""),
+                )
+                
+                from web.pages.admin_page import snapshot_handler
+                response = await snapshot_handler(request)
+                
+                # Write response
+                response_headers = f"HTTP/1.1 {response.status}\r\n"
+                response_headers += f"Content-Type: {response.content_type}\r\n"
+                response_headers += f"Content-Length: {len(response.body)}\r\n"
+                response_headers += "\r\n"
+                
+                writer.write(response_headers.encode())
+                if isinstance(response.body, bytes):
+                    writer.write(response.body)
+                else:
+                    writer.write(response.body.encode())
+                
+            except Exception as e:
+                print(f"Snapshot API error: {e}")
+                response = f'{{"error": "Snapshot failed: {e}"}}'
+                response_headers = f"HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {len(response)}\r\n\r\n"
+                writer.write(response_headers.encode() + response.encode())
+        elif path == "/api/stream/restart":
+            # Handle stream restart endpoint
+            try:
+                from cam.camera_stream import stop_all_streams, start_stream
+                
+                # Stop current streams
+                stopped_count = stop_all_streams()
+                
+                # Brief pause for cleanup
+                import uasyncio as asyncio
+                await asyncio.sleep_ms(500)
+                
+                # Restart stream
+                stream_started = await start_stream()
+                
+                if stream_started:
+                    response = f'{{"status": "success", "message": "Stream restarted successfully", "stopped_count": {stopped_count}}}'
+                else:
+                    response = f'{{"status": "error", "message": "Failed to restart stream", "stopped_count": {stopped_count}}}'
+                
+                response_headers = f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(response)}\r\n\r\n"
+                writer.write(response_headers.encode() + response.encode())
+                
+            except Exception as e:
+                print(f"Stream restart API error: {e}")
+                response = f'{{"error": "Stream restart failed: {e}"}}'
+                response_headers = f"HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {len(response)}\r\n\r\n"
+                writer.write(response_headers.encode() + response.encode())
         else:
             # 404 for other API endpoints
             response = '{"error": "API endpoint not found"}'
@@ -376,13 +517,16 @@ async def _handle_legacy_status(writer):
 
 async def start_web_server():
     """Start the web server and return the server object"""
+    # Pre-cache critical assets for faster page loads
+    await precache_critical_assets()
+    
     server = await asyncio.start_server(handle_client, "0.0.0.0", 80)
     print("Web server started on port 80")
     return server
 
 
 def run():
-    """Start the web server on port 80 (for backward compatibility)"""
+    """Start the web server on port 80"""
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
     loop.run_forever()

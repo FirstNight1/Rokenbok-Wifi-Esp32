@@ -18,6 +18,7 @@
         <p><b>Battery Level:</b> <span id='vehicle_battery'>N/A</span></p>
         <p><b>MCU Temp:</b> <span id='mcu_temp'>N/A</span> &deg;C</p>
         <p><b>Memory:</b> <span id='memory_info'>{{ memory_info }}</span></p>
+        <p><b>WiFi Signal:</b> <span id='wifi_signal'>Loading...</span></p>
         <p><b>IP Address:</b> {{ ip }}</p>
     </div>
     <script>
@@ -53,6 +54,27 @@
             if (js.memoryFree) {
                 const memKB = Math.round(js.memoryFree / 1024);
                 document.getElementById('memory_info').textContent = `${memKB} KB free`;
+            }
+            
+            // Update WiFi signal strength
+            if (js.wifiSignal !== undefined) {
+                const signal = js.wifiSignal;
+                if (signal === 0) {
+                    document.getElementById('wifi_signal').textContent = 'AP Mode';
+                    document.getElementById('wifi_signal').style.color = '#ffa500';
+                } else {
+                    document.getElementById('wifi_signal').textContent = `${signal} dBm`;
+                    // Color code signal strength (green > -50, yellow > -70, red < -70)
+                    if (signal > -50) {
+                        document.getElementById('wifi_signal').style.color = '#28a745';
+                    } else if (signal > -70) {
+                        document.getElementById('wifi_signal').style.color = '#ffc107';
+                    } else {
+                        document.getElementById('wifi_signal').style.color = '#dc3545';
+                    }
+                }
+            } else {
+                document.getElementById('wifi_signal').textContent = 'N/A';
             }
         }).catch(e => {
             console.error('Status fetch failed:', e);

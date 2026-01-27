@@ -10,7 +10,10 @@
     "static_mask": "",
     "static_gw": "",
     "static_dns": "",
+    "ledEnabled": true,
+    "ledPin": 9,
     "cam_pixel_format": "RGB565",
+    "cam_mode": "OV3660_RGB565_SW_JPEG",
     "cam_framesize": 5,
     "cam_quality": 85,
     "cam_contrast": 1,
@@ -21,5 +24,6 @@
     "cam_rotate": 0,
     "cam_speffect": 0,
     "cam_stream_port": 8081,
-    "cam_stream_delay_ms": 50
+    "cam_stream_delay_ms": 50,
+    "cam_raw_streaming": false
 }

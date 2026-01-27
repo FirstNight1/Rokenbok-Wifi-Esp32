@@ -44,7 +44,7 @@
         {
             "label": "Open REPL",
             "type": "shell",
-            "command": "python -m mpremote connect COM19 repl",
+            "command": "python -m mpremote connect COM17 repl",
             "group": "build",
             "problemMatcher": []
         },

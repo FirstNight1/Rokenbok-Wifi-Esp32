@@ -13,11 +13,11 @@
         <div style='flex:1;'>
             <h2>Admin Settings</h2>
             <form method="POST" action="/admin">
-                <label>Camera Type:</label><br>
-                <select name="cam_type">
-                    {{ cam_type_options }}
+                <label>Camera Mode:</label><br>
+                <select name="cam_mode">
+                    {{ cam_mode_options }}
                 </select><br>
-                <small style="color:#666;">Select OV2640 for hardware JPEG, OV3660 for software JPEG.</small><br><br>
+                <small style="color:#666;">Select camera type and encoding method. OV2640 has hardware JPEG support.</small><br><br>
                 <label>Vehicle Type:</label><br>
                 <select name="vehicleType">{{ type_options }}</select><br>
                 <small style="color:#c00;font-size:0.95em;display:block;margin-bottom:10px;">
@@ -29,6 +29,24 @@
                 <label>Vehicle Name:</label><br>
                 <input name="vehicleName" value="{{ vehicle_name }}"><br><br>
                 <hr>
+                <h3>Network Status LED</h3>
+                <div style="margin-bottom:15px;">
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" name="ledEnabled" {{ led_enabled_checked }}>
+                        <span>Enable Network Status LED</span>
+                    </label>
+                    <small style="color:#666;display:block;margin-top:4px;">
+                        Shows WiFi connection status (blinking during boot/AP mode, solid when connected).
+                    </small>
+                </div>
+                <div style="margin-bottom:20px;">
+                    <label>Network LED Pin:</label><br>
+                    <select name="ledPin">
+                        {{ led_pin_options }}
+                    </select><br>
+                    <small style="color:#666;">GPIO pin for network status LED connection.</small>
+                </div>
+                <hr>
                 <h3>Camera Settings</h3>
                 <p style="color:#666;font-size:0.9em;margin-bottom:20px;">
                     <strong>Note:</strong> Camera setting adjustments will not take effect in the preview until after
@@ -39,6 +57,10 @@
                     {{ framesize_options }}
                 </select><br>
                 <small style="color:#666;">Higher resolutions may reduce frame rate.</small><br><br>
+                
+                <label>High-Resolution Snapshot:</label><br>
+                <button type="button" onclick="window.open('/api/snapshot', '_blank')" style="background:#007cba;color:white;padding:8px 16px;border:none;border-radius:4px;cursor:pointer;">Capture Maximum Resolution Snapshot</button><br>
+                <small style="color:#666;">Opens high-resolution still image in new tab (temporarily interrupts stream).</small><br><br>
                 <label>JPEG Quality (1-100):</label><br>
                 <input type="range" name="cam_quality" min="10" max="100" value="{{ cam_quality }}">
                 <span id="qualityValue">{{ cam_quality }}</span><br>

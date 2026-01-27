@@ -11,6 +11,9 @@
     {{ header_nav }}
     <div style='max-width:600px;margin:32px auto 0 auto;'>
         <h2>WiFi Setup</h2>
+        <div style="margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9;">
+            <p><b>Current WiFi Signal:</b> <span id='wifi_signal_status'>Loading...</span></p>
+        </div>
         {{ status_html }}
         {{ error_msg }}
         <form method="POST" action="/wifi">
@@ -73,6 +76,41 @@
                 });
             }
         }
+        
+        // WiFi Signal Strength Monitor
+        function updateWifiSignal() {
+            fetch('/api/status').then(r => r.json()).then(js => {
+                const signalElement = document.getElementById('wifi_signal_status');
+                if (js.wifiSignal !== undefined) {
+                    const signal = js.wifiSignal;
+                    if (signal === 0) {
+                        signalElement.textContent = 'AP Mode';
+                        signalElement.style.color = '#ffa500';
+                    } else {
+                        signalElement.textContent = `${signal} dBm`;
+                        // Color code signal strength (green > -50, yellow > -70, red < -70)
+                        if (signal > -50) {
+                            signalElement.style.color = '#28a745';
+                        } else if (signal > -70) {
+                            signalElement.style.color = '#ffc107';
+                        } else {
+                            signalElement.style.color = '#dc3545';
+                        }
+                    }
+                } else {
+                    signalElement.textContent = 'N/A';
+                    signalElement.style.color = '#666';
+                }
+            }).catch(e => {
+                console.error('Signal strength fetch failed:', e);
+                document.getElementById('wifi_signal_status').textContent = 'Error';
+                document.getElementById('wifi_signal_status').style.color = '#dc3545';
+            });
+        }
+        
+        // Update signal strength every 2 seconds
+        updateWifiSignal(); // Initial update
+        setInterval(updateWifiSignal, 2000);
     </script>
 </body>
 

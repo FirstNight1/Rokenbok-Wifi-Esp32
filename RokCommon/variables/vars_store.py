@@ -19,6 +19,36 @@ def random_tag():
 
 
 # ---------------------------------------------------------
+# Validate and repair config if needed
+# ---------------------------------------------------------
+def validate_and_repair_config(cfg):
+    """Ensure critical config fields exist, repair if missing"""
+    if not isinstance(cfg, dict):
+        print("ERROR: Config is not a dictionary, creating new config")
+        return minimal_default_config()
+    
+    # Required fields that should never be missing
+    required_fields = {
+        "vehicleType": "RokDevice", 
+        "vehicleTag": f"RokDevice-{random_tag()}",
+        "vehicleName": None
+    }
+    
+    repaired = False
+    for field, default_value in required_fields.items():
+        if field not in cfg:
+            print(f"WARNING: Missing required field '{field}', adding default: {default_value}")
+            cfg[field] = default_value
+            repaired = True
+    
+    if repaired:
+        print("Config repaired - saving updated version")
+        save_config(cfg)
+    
+    return cfg
+
+
+# ---------------------------------------------------------
 # Generate minimal default configuration with only core fields
 # ---------------------------------------------------------
 def minimal_default_config():
@@ -53,14 +83,45 @@ def init_config():
         return None
 
     # Try to load existing runtime config first
+    config_loaded = False
     try:
         try:
+            # Check if config file exists and is readable
             os.stat(config_file)
-            load_config()
-            if _cached_config:
-                print(f"Loaded runtime config from {config_file}")
+
+            
+            # Try to load and validate the config
+            with open(config_file, "r") as f:
+                content = f.read().strip()
+                if not content:
+                    print("WARNING: Config file is empty - preserving file and using defaults")
+                    # Don't overwrite empty file, load defaults instead
+                    _cached_config = None
+                else:
+                    try:
+                        _cached_config = json.loads(content)
+                        # Validate and repair config if needed
+                        _cached_config = validate_and_repair_config(_cached_config)
+
+                        config_loaded = True
+                    except json.JSONDecodeError as je:
+                        print(f"ERROR: Config file corrupted (JSON error): {je}")
+                        print(f"Preserving original file and creating backup...")
+
+                        _cached_config = None
+                        
         except OSError:
-            # Runtime config doesn't exist, try to load project defaults
+            # Config file doesn't exist - normal first run
+            print(f"Config file {config_file} not found - first run setup")
+            _cached_config = None
+            
+    except Exception as e:
+        print(f"Unexpected error reading config: {e}")
+        _cached_config = None
+    
+    # Only load defaults if no valid config was found
+    if not config_loaded:
+        try:
             try:
                 os.stat(config_defaults_file)
                 load_config_defaults()
@@ -68,19 +129,32 @@ def init_config():
                     print(f"Loaded project defaults from {config_defaults_file}")
                     # Save the defaults as runtime config
                     save_config(_cached_config)
+                    config_loaded = True
             except OSError:
                 # No defaults file either, use hardcoded minimal config
                 print("No config files found, creating minimal default config")
                 save_default_config()
-    except Exception as e:
-        print(f"Config initialization failed, fatal error: {e}")
-        return None
+                config_loaded = True
+        except Exception as e:
+            print(f"Config defaults loading failed: {e}")
+            # Last resort - minimal config
+            print("Using minimal fallback config")
+            _cached_config = minimal_default_config()
+            save_config(_cached_config)
 
     # if cached config has a default Vehicle Tag, generate a new unique one
     tag = get_config_value("vehicleTag", "")
     if tag.endswith("DEFAULT"):
         tag = tag.replace("DEFAULT", f"{random_tag()}")
         save_config_value("vehicleTag", tag)
+
+    # One-time sync after config initialization to ensure WiFi credentials persist
+    try:
+        os.sync()
+        print("DEBUG: Config synced to flash after initialization")
+    except AttributeError:
+        # os.sync() not available on all MicroPython builds
+        print("DEBUG: os.sync() not available, relying on file flush")
 
     return _cached_config
 
@@ -104,12 +178,29 @@ def load_config():
     # Try to load existing config
     try:
         with open(config_file, "r") as f:
-            _cached_config = json.load(f)
-    except Exception as e:
-        print(f"Config load failed: {e}")
+            content = f.read().strip()
+            if not content:
+                print(f"WARNING: Config file {config_file} is empty")
+                _cached_config = None
+                return None
+                
+        _cached_config = json.loads(content)
+        print(f"Config loaded successfully: {len(_cached_config)} settings")
+        return _cached_config
+        
+    except OSError as oe:
+        print(f"Config file not found: {config_file}")
         _cached_config = None
-
-    return _cached_config
+        return None
+    except json.JSONDecodeError as je:
+        print(f"CRITICAL: Config file JSON corrupted at line {je.lineno}, column {je.colno}: {je.msg}")
+        print(f"Content preview: {content[:100]}...")
+        _cached_config = None
+        return None
+    except Exception as e:
+        print(f"Unexpected config load error: {e}")
+        _cached_config = None
+        return None
 
 
 # ---------------------------------------------------------
@@ -159,6 +250,9 @@ def get_config_value(key, default=None):
 # ---------------------------------------------------------
 def save_config_value(key, value):
     global _cached_config
+    
+    print(f"DEBUG: save_config_value() called - key='{key}', value='{value}'")
+    
     if _cached_config is None:
         _cached_config = minimal_default_config()
 
@@ -179,6 +273,8 @@ def save_config_value(key, value):
 # ---------------------------------------------------------
 def save_config(cfg):
     global _cached_config
+    
+    print(f"DEBUG: save_config() called")
 
     # Update cache first
     _cached_config = cfg
@@ -191,3 +287,64 @@ def save_config(cfg):
             json.dump(_cached_config, f)
     except Exception as e:
         print(f"Config save failed: {e}")
+
+
+# ---------------------------------------------------------
+# Debug function - check config file integrity  
+# ---------------------------------------------------------
+def check_config_integrity():
+    """Debug function to check config file status"""
+    config_file = f"{CONFIG_DIR}/{CONFIG_FILE}"
+    
+    try:
+        # Check if file exists
+        stat = os.stat(config_file)
+        print(f"Config file exists: {config_file}")
+        print(f"File size: {stat[6]} bytes")
+        
+        # Try to read raw content
+        with open(config_file, "r") as f:
+            content = f.read()
+            
+        print(f"Content length: {len(content)} characters")
+        
+        if not content.strip():
+            print("ERROR: Config file is empty!")
+            return False
+            
+        # Try to parse JSON
+        try:
+            cfg = json.loads(content)
+            print(f"✓ Valid JSON with {len(cfg)} settings")
+            
+            # Check for critical fields
+            critical_fields = ["vehicleType", "vehicleTag"]
+            for field in critical_fields:
+                if field in cfg:
+                    print(f"✓ Has {field}: {cfg[field]}")
+                else:
+                    print(f"✗ Missing {field}")
+                    
+            # Check for WiFi settings
+            wifi_fields = ["ssid", "wifipass", "wifiEnabled"]
+            wifi_count = sum(1 for field in wifi_fields if field in cfg)
+            print(f"WiFi settings: {wifi_count}/3 configured")
+            
+            if "ssid" in cfg:
+                print(f"  SSID: {cfg['ssid']}")
+            if "wifipass" in cfg:
+                print(f"  Password: {'*' * len(str(cfg['wifipass']))}")
+                
+            return True
+            
+        except json.JSONDecodeError as e:
+            print(f"✗ JSON Error: {e}")
+            print(f"Content preview: {content[:200]}...")
+            return False
+            
+    except OSError:
+        print(f"✗ Config file not found: {config_file}")
+        return False
+    except Exception as e:
+        print(f"✗ Unexpected error: {e}")
+        return False

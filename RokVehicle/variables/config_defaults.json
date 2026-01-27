@@ -10,5 +10,18 @@
     "static_mask": "",
     "static_gw": "",
     "static_dns": "",
-    "motor_min": {}
+    "ledEnabled": true,
+    "ledPin": 21,
+    "busyLedEnabled": false,
+    "busyLedPin": 9,
+    "motor_min": {},
+    "motor_slow": {},
+    "motor_max": {},
+    "motor_safety_timeout_ms": 400,
+    "drive_tracking_adjustment": 0.0,
+    "busy_status_override": null,
+    "slow_mode_disable_functions": false,
+    "motor_travel_safety_enabled": {},
+    "motor_travel_safety_forward": {},
+    "motor_travel_safety_reverse": {}
 }

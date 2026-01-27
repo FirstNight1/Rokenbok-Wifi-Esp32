@@ -25,12 +25,13 @@
                 <div><b>Type:</b> {{ vehicle_type }}</div>
             </div>
             <div class="section">
-                <h2 id="control_mapping_header">Control Mapping</h2>
+                <h2>Control Mapping</h2>
                 <div style="margin-bottom:6px;">
                     <span style="font-weight:600;">Current Drive Mode:</span>
                     <span id="drive_mode_indicator" style="color:#1976d2;">{{ drive_mode }}</span>
                 </div>
                 <button id="toggle_mode_btn" class="btn">Toggle D-Pad/Tank</button>
+                <button id="edit_mapping_btn" class="btn" style="margin-top:8px;">Edit Control Mapping</button>
                 <div id="vehicle_status_indicator" class="status-indicator status-disconnected">
                     Vehicle Disconnected
                 </div>
@@ -49,7 +50,7 @@
                     <input type="text" id="area_ip" value="{{ area_ip }}" placeholder="e.g. 192.168.1.100">
                     <br>
                     <label>FPV Camera IP:</label><br>
-                    <input type="text" id="fpv_ip" value="{{ fpv_ip }}" placeholder="e.g. 192.168.1.101">
+                    <input type="text" id="fpv_ip" value="{{ fpv_ip }}" placeholder="e.g. 192.168.11.21:8081">
                     <br>
                     <button id="save_ips_btn" class="btn save-btn">Save Camera IPs</button>
                 </div>

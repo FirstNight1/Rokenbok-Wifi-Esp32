@@ -49,12 +49,6 @@ def handle_get_legacy():
     return ("200 OK", "text/html", html)
 
 
-# For backward compatibility
-def handle_get():
-    """Legacy handle_get for backward compatibility"""
-    return handle_get_legacy()
-
-
 # Make the unified handler accessible
 handle_get = testing_handler.handle_get
 handle_post = testing_handler.handle_post

@@ -1,8 +1,51 @@
 # pages/play_page.py
 
+from RokCommon.web.request_response import Response
 from RokCommon.variables.vars_store import get_config_value
 from RokCommon.variables.vehicle_types import VEHICLE_TYPES
 import json
+
+class PlayHandler:
+    """Play page handler using unified Request/Response system"""
+
+    def handle_get(self, request):
+        """Handle GET requests for play page"""
+        try:
+            result = handle_get_legacy(request.query_string)
+            if isinstance(result, tuple) and len(result) == 3:
+                status, content_type, content = result
+                if content_type == "application/json":
+                    return Response.json(json.loads(content))
+                else:
+                    return Response(status=status, content_type=content_type, body=content)
+            else:
+                return Response.html(str(result))
+        except Exception as e:
+            print(f"Play page GET error: {e}")
+            return Response.server_error(f"Error loading play page: {str(e)}")
+
+    def handle_post(self, request):
+        """Handle POST requests for play page"""
+        try:
+            from RokCommon.variables.vars_store import load_config
+            cfg = load_config()
+            result = handle_post_legacy(request.body, cfg)
+            if isinstance(result, tuple) and len(result) == 2:
+                # Handle redirect response
+                updated_cfg, redirect_path = result
+                if updated_cfg:
+                    from RokCommon.variables.vars_store import save_config
+                    save_config(updated_cfg)
+                return Response.redirect_to(redirect_path)
+            else:
+                return Response.json({"status": "ok"})
+        except Exception as e:
+            print(f"Play page POST error: {e}")
+            return Response.server_error(f"Error processing play request: {str(e)}")
+
+
+# Create handler instance
+play_handler = PlayHandler()
 
 
 # ---------------------------------------------------------
@@ -22,7 +65,7 @@ def get_vehicle_info():
 # ---------------------------------------------------------
 
 
-def handle_get(query_string=None):
+def handle_get_legacy(query_string=None):
     """Return a simple play page skeleton.
 
     This page is intentionally a lightweight skeleton. It exposes:
@@ -79,10 +122,10 @@ def handle_get(query_string=None):
     if query_string and "config=1" in query_string:
         cam_cfg = get_config_value("camera_ips", {})
         area_ip = cam_cfg.get("area", "")
-        fpv_ip = cam_cfg.get("fpv", "")
+        fpv_ip = cam_cfg.get("fpv", "192.168.11.21:8081")  # Default FPV with port
         view_mode = get_config_value("view_mode", "area")
         pip_flip = get_config_value("pip_flip", False)
-        drive_mode = get_config_value("drive_mode", "tank")
+        drive_mode = get_config_value("drive_mode", "dpad")
         mapping = get_config_value("controller_mapping", {})
         # New: expose axis_motors, motor_functions, functions for dynamic mapping
         axis_motors = info["axis_motors"] if info and "axis_motors" in info else []
@@ -90,9 +133,13 @@ def handle_get(query_string=None):
             info["motor_functions"] if info and "motor_functions" in info else []
         )
         logic_functions = info["functions"] if info and "functions" in info else []
-        # For legacy UI, keep aux_motors and all_motors for now
+        # Keep aux_motors and all_motors for UI
         aux_motors = [m for m in (motor_functions or [])]
         all_motors = list(axis_motors) + list(motor_functions)
+        # Get slow mode configuration
+        motor_slow = get_config_value("motor_slow", 16384)
+        motor_max = get_config_value("motor_max", 65535)
+        slow_mode_disable_functions = get_config_value("slow_mode_disable_functions", False)
         return (
             "200 OK",
             "application/json",
@@ -110,16 +157,18 @@ def handle_get(query_string=None):
                     "axis_motors": axis_motors,
                     "motor_functions": motor_functions,
                     "logic_functions": logic_functions,
+                    "motor_slow": motor_slow,
+                    "motor_max": motor_max,
+                    "slow_mode_disable_functions": slow_mode_disable_functions,
                 }
             ),
         )
 
-    # Load header/nav HTML and inject vehicle_name
-    try:
-        with open("web/pages/assets/header_nav.html", "r") as f:
-            header_nav = f.read().replace("{{ vehicle_name }}", vehicle_name)
-    except Exception:
-        header_nav = f"<div style='background:#222;color:#fff;padding:12px;text-align:center'>Rokenbok Vehicle Control<br><span style='color:#f9e79f'>{vehicle_name}</span></div>"
+    # Load header/nav HTML using shared function
+    from RokCommon.web.pages.home_page import load_and_process_header
+    header_nav = load_and_process_header(vehicle_name)
+    if not header_nav:
+        raise Exception("Failed to load header navigation")
 
     vehicle_type = vtype or "Unknown"
     vehicle_name = get_config_value("vehicleName", "Unnamed Vehicle")
@@ -130,29 +179,27 @@ def handle_get(query_string=None):
     )
     cam_cfg = get_config_value("camera_ips", {})
     area_ip = cam_cfg.get("area", "")
-    fpv_ip = cam_cfg.get("fpv", "")
+    fpv_ip = cam_cfg.get("fpv", "192.168.11.21:8081")  # Default FPV with port
     view_mode = get_config_value("view_mode", "area")
     pip_flip = get_config_value("pip_flip", False)
-    drive_mode = get_config_value("drive_mode", "tank")
+    drive_mode = get_config_value("drive_mode", "dpad")
 
     # Load main HTML from asset file and inject values
-    try:
-        with open("web/pages/assets/play_page.html", "r") as f:
-            html = f.read()
-        html = html.replace("{{ header_nav }}", header_nav)
-        html = html.replace("{{ vehicle_name }}", vehicle_name)
-        html = html.replace("{{ vehicle_type }}", vehicle_type)
-        html = html.replace("{{ axis_map_list }}", axis_map_list)
-        html = html.replace("{{ area_ip }}", area_ip)
-        html = html.replace("{{ fpv_ip }}", fpv_ip)
-        # MicroPython str may not have capitalize()
-        if drive_mode:
-            drive_mode_cap = drive_mode[0].upper() + drive_mode[1:]
-        else:
-            drive_mode_cap = drive_mode
-        html = html.replace("{{ drive_mode }}", drive_mode_cap)
-    except Exception as e:
-        html = f"<html><body><h2>Error loading play page: {e}</h2></body></html>"
+    with open("web/pages/assets/play_page.html", "r") as f:
+        html = f.read()
+    # Template replacements with safety checks for None values
+    html = html.replace("{{ header_nav }}", header_nav or "")
+    html = html.replace("{{ vehicle_name }}", vehicle_name or "")
+    html = html.replace("{{ vehicle_type }}", vehicle_type or "")
+    html = html.replace("{{ axis_map_list }}", axis_map_list or "")
+    html = html.replace("{{ area_ip }}", area_ip or "")
+    html = html.replace("{{ fpv_ip }}", fpv_ip or "")
+    # MicroPython str may not have capitalize()
+    if drive_mode:
+        drive_mode_cap = drive_mode[0].upper() + drive_mode[1:]
+    else:
+        drive_mode_cap = drive_mode
+    html = html.replace("{{ drive_mode }}", drive_mode_cap or "")
     return ("200 OK", "text/html", html)
 
 
@@ -161,7 +208,7 @@ def handle_get(query_string=None):
 # ---------------------------------------------------------
 
 
-def handle_post(body, cfg):
+def handle_post_legacy(body, cfg):
     """Accepts a small JSON body to save mapping choices.
 
     Expected JSON: { action: 'save_map', left: 'left', right: 'right', mode: 'tank' }
@@ -205,3 +252,8 @@ def handle_post(body, cfg):
 
     # Return the updated config and redirect to play
     return (None, "/play")
+
+
+# Make unified handler accessible as module functions
+handle_get = play_handler.handle_get
+handle_post = play_handler.handle_post

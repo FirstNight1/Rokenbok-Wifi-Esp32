@@ -64,13 +64,21 @@ If the vehicle is equipped with LEDs (or the remote key slot is wired for the re
 See OTA_UPDATE_README.md
 
 # TODO List (Project-wide)
+Revised additions/priorities 1/21/26:
+- [ ] Rewrite "easy" files like the Wifi manager, vehicle and network LED controllers, motor controller, re-check the config controller, to remove AI fluff and simplify, then refactor remaining references to use that "final" design, comment, and instruct AI not to touch those files without explicit permisison and review.
+- [ ] Add API "override" to busy mode indicator to allow RokSystem to handle busy status if used rather than websocket connection, also allow clearing the override rather than just on/off (on/off/clear states)
+- [ ] Perform manual review of wifi connection code to determine why it can take so long to connect and fails sometimes.
+- [ ] Implement shoulder "slow" button - only applies to Axis motors (drive motors) - can disable functions as well or not
+- [ ] Time-based motor travel limits (configurable per motor (non-continuous function motors only, or all function motors with a disable option), configurable time, time is cumulative, going more than half the time in one direction resets the other direction.  Example, 6 second max lift, 4 second max lower.  Both start at 0.  Raise for 6 seconds.  Lower for 1.  You can raise then for 1 (or use relative percentages, 1/4*6 is allowable raise), and so on, until you lower for at least 2, which then resets raise to 6.  You can then lower for 2 more, and back and forth, agaain until you have raised for 3, which resets the lower threshold.
+- [ ] Revisit customizable max speed on axis motors (function motors don't apply as they're a set speed)
+- [ ] current sensing able to detect clutch vs. stall vs. run current?  Possibly per-direction, also useful to indicate gear/motor wear?
+- [ ] Function limit switches, IMU, or other methodology other than the timing above?
+- [ ] motor control hard time limits (blanket 6-seconds-of-motor-is-on-continuously) kill for function motors
+- [ ] controller "stuck button" limits (blanket 6-seconds of function button input is killed, 10 seconds/20 seconds of drive input is killed, ensure controller disconnect stops control packets).
 
+Existing:
 - [ ] Remove all debug logging and print statements from all code (production cleanup)
 - [ ] Refactor and clean up every class for clarity and maintainability - suggest Claude Sonnet 4 to clean up GPT garbage.
-- [ ] Check every web page and Python file for syntax issues and errors
-- [ ] Fix: Crashes in the web server cause the REPL to hang; ensure graceful error handling and recovery
-- [ ] Fix: Nothing restarts gracefully after a crash; implement robust restart logic
-- [ ] Fix: WiFi retry logic—if WiFi fails the first time, subsequent retries immediately fail with 'WiFi Internal Error'; ensure retries are meaningful
 - [ ] Add setting a password to AP mode rather than always using 1234567890
 - [ ] Add a Readme.md in RokVehicle on flashing MicroPython and this program onto the board
 - [ ] Add documentation in this Readme.md on the Play page, using gamepads, assigning control methodology and buttons, using axis controllers,
