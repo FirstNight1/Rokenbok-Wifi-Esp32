@@ -75,6 +75,8 @@ Revised additions/priorities 1/21/26:
 - [ ] Function limit switches, IMU, or other methodology other than the timing above?
 - [ ] motor control hard time limits (blanket 6-seconds-of-motor-is-on-continuously) kill for function motors
 - [ ] controller "stuck button" limits (blanket 6-seconds of function button input is killed, 10 seconds/20 seconds of drive input is killed, ensure controller disconnect stops control packets).
+- [ ] Simplify handle get and handle post architecture across both projects, make web server reusable (it should basically just be handing off gets and posts to the appropriate handlers and nothing else).
+- [ ] Standardize motor config and play pages on packet send timing for keepalive - play uses count of gamepad/keyboard polling loops (20ms loop * 10 = 200ms keepalive, for example, that total time is configurable on the admin page).  Motor config uses a global timer in the browser on that 200ms iteration.  Works on both for now, and the RokSystem can do it differently too, so no big rush on fixing it on the vehicle.
 
 Existing:
 - [ ] Remove all debug logging and print statements from all code (production cleanup)

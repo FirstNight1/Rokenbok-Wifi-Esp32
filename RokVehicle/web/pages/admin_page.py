@@ -199,9 +199,6 @@ def _save_motor_configs(fields):
 
 
 def build_admin_page(cfg):
-    import gc
-    gc.collect()  # Clean up memory before building page
-    
     try:
         # Load header navigation using shared function
         header_nav = load_and_process_header(cfg.get("vehicleName", ""))
@@ -358,6 +355,7 @@ def build_admin_page(cfg):
         html = html.replace("{{ busy_led_enabled_checked }}", "checked" if busy_led_enabled else "")
         html = html.replace("{{ busy_led_pin_options }}", (busy_led_pin_options_html or "").strip())
         html = html.replace("{{ motor_safety_timeout }}", str(get_config_value("motor_safety_timeout_ms", 400)))
+        html = html.replace("{{ keepalive_interval }}", str(get_config_value("keepalive_interval_ms", 200)))
         html = html.replace("{{ shared_led_note }}", shared_led_note)
         
         return html
@@ -373,8 +371,13 @@ class AdminHandler:
     def handle_get(self, request):
         """Handle GET requests for admin page"""
         try:
-            import gc
-            gc.collect()  # Clean up memory before building page
+            # Check if this is a config request
+            if request.query.get('config') == 'keepalive':
+                import json
+                config = {
+                    "keepalive_interval_ms": get_config_value("keepalive_interval_ms", 200)
+                }
+                return Response.json(config)
             
             cfg = {
                 "vehicleType": get_config_value("vehicleType"),
@@ -454,6 +457,12 @@ class AdminHandler:
             # Clamp to reasonable range (100ms to 5000ms)
             motor_safety_timeout = max(100, min(5000, motor_safety_timeout))
             save_config_value("motor_safety_timeout_ms", motor_safety_timeout)
+            
+            # Save keepalive interval
+            keepalive_interval = int(fields.get("keepaliveIntervalMs", get_config_value("keepalive_interval_ms", 200)))
+            # Clamp to reasonable range (50ms to 2000ms)
+            keepalive_interval = max(50, min(2000, keepalive_interval))
+            save_config_value("keepalive_interval_ms", keepalive_interval)
             
             # Save drive tracking adjustment
             try:

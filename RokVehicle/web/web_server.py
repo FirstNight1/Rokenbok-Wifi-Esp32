@@ -1,6 +1,42 @@
+"""
+WebSocket Server for Real-Time Vehicle Control with Performance Monitoring
+
+TIMING MEASUREMENT BREAKDOWN:
+=============================================================================
+There are THREE different timing measurements in the system:
+
+1. [WS-MAIN] - Main WebSocket packet receive/decode loop timing:
+   - Frame: Time to receive raw WebSocket frame from network
+   - Decode: Time to decode WebSocket frame and validate
+   - JSON: Time to parse JSON payload
+   - Process: Time from JSON parse to packet queue
+   - Total: Complete WebSocket main loop time (Frame + Decode + JSON + Process)
+
+2. [WS-HANDLER] - WebSocket packet handler execution timing:
+   - JSON: Time to parse and validate control packet structure
+   - Process: Time to execute control_processor.process_packet()
+   - Total: Complete handler execution time (JSON + Process)
+
+3. [CONTROL-PROC] - Control processor internal timing:
+   - Timer: Time to process timer/safety checks
+   - Axis: Time to process axis motor controls
+   - Func: Time to process function motor controls  
+   - Total: Complete control processor execution time
+
+EXPECTED RELATIONSHIP:
+- WS-MAIN Total ≈ WS-HANDLER Total (packet flows through both)
+- WS-HANDLER Process ≈ CONTROL-PROC Total (handler calls control processor)
+- All measurements are for the same packet number
+
+LOG FREQUENCY: Every 25th packet to reduce console spam
+=============================================================================
+"""
+
 import uasyncio as asyncio
 import time
+import json
 import sys
+import control.control_processor as cp
 from web.pages.admin_page import admin_handler
 from web.pages.testing_page import testing_handler
 from web.pages.play_page import play_handler
@@ -24,6 +60,12 @@ except ImportError:
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 WS_CLIENT = None  # Only one controlling websocket client
+WS_LAST_PACKET_TIME = None  # Track last packet time for timeout detection
+WS_CLIENT_IP = None  # Track client IP for logging
+
+# Real-time packet management - only keep latest packet
+WS_PENDING_PACKET = None  # Single pending packet (most recent)
+WS_PROCESSING_PACKET = False  # Flag to prevent queue overflow
 
 # Template cache to avoid file I/O on every request
 _template_cache = {}
@@ -68,27 +110,44 @@ ROUTES = {
 }
 
 
+# Global counter for packet debugging
+_packet_counter = 0
+_last_packet_arrival = 0  # Track inter-packet timing
+
 # WebSocket handler for vehicle control
 def vehicle_websocket_handler(text, writer):
     """Handle WebSocket messages for vehicle control"""
-    import time
+    global _packet_counter
     start_time = time.ticks_ms()
     
     try:
-        import json
-        import control.control_processor as cp
-
+        # Increment packet counter
+        _packet_counter += 1
+        
+        # Check if this packet was replaced while we were processing
+        global WS_PENDING_PACKET
+        if WS_PENDING_PACKET:
+            # Another packet arrived while we were processing - this one is stale
+            print(f"[WS] Dropped stale packet #{_packet_counter} (newer packet available)")
+            return
+        
+        # Parse JSON
         json_parse_time = time.ticks_ms()
         pkt = json.loads(text)
+        json_end_time = time.ticks_ms()
         
         if not isinstance(pkt, dict):
             return
 
+        # Process packet
         # Use control processor for all packet handling
         if cp and cp.get_control_processor():
             cp.get_control_processor().process_packet(pkt)
         else:
             print("ERROR: Control processor not available")
+            
+        # Timing logging removed for cleaner output
+        _packet_counter += 1
             
     except Exception as e:
         end_time = time.ticks_ms()
@@ -96,7 +155,6 @@ def vehicle_websocket_handler(text, writer):
         print(f"WebSocket handler error: {e} (took {total_time}ms)")
         # Try to emergency stop all motors on any error
         try:
-            import control.control_processor as cp
             if cp and cp.get_control_processor():
                 cp.get_control_processor().stop_all_motors()
         except:
@@ -124,7 +182,6 @@ def clear_template_cache():
     """Clear template cache to free memory or reload templates"""
     global _template_cache
     _template_cache.clear()
-    gc.collect()
 
 
 async def precache_critical_assets():
@@ -198,7 +255,6 @@ async def precache_critical_assets():
         await asyncio.sleep_ms(1)  # Yield to prevent blocking
 
     print(f"Pre-cache complete: {cached_count} assets, {total_size} bytes total")
-    gc.collect()
 
 
 async def handle_client(reader, writer):
@@ -339,18 +395,27 @@ async def handle_client(reader, writer):
             await writer.drain()
 
     except OSError as e:
-        if getattr(e, "errno", None) != 104:  # Ignore ECONNRESET
-            print(f"Network error: {e}")
+        # Handle all OS-level network errors gracefully
+        if getattr(e, "errno", None) == 113:  # ECONNABORTED
+            print(f"[HTTP] Client {client_ip} connection aborted")
+        elif getattr(e, "errno", None) == 104:  # ECONNRESET  
+            print(f"[HTTP] Client {client_ip} connection reset")
+        else:
+            print(f"[HTTP] Network error with {client_ip}: {e}")
     except Exception as e:
-        print(f"Error handling request: {e}")
+        print(f"[HTTP] Error handling request from {client_ip}: {e}")
+        # Try to send a basic error response if possible
+        try:
+            error_response = b"HTTP/1.1 500 Internal Server Error\r\n\r\n"
+            writer.write(error_response)
+            await writer.drain()
+        except:
+            pass  # If we can't send error response, just close
     finally:
         try:
             await writer.aclose()
         except Exception:
             pass
-        # Force garbage collection
-        import gc
-        gc.collect()
 
 
 async def _handle_static_assets(writer, path):
@@ -610,43 +675,78 @@ async def _handle_legacy_status(writer):
 
 
 async def start_web_server():
-    # Pre-cache critical assets for faster page loads
-    await precache_critical_assets()
+    global SERVER_TASK, SERVER_START_TIME
+    print("[SERVER] Starting web server...")
+    import time
+    server_start = time.ticks_ms()
+    SERVER_START_TIME = server_start
+    
+    try:
+        # Pre-cache critical assets for faster page loads
+        await precache_critical_assets()
+        
+        assets_cached = time.ticks_ms()
+        cache_time = time.ticks_diff(assets_cached, server_start)
+        print(f"[SERVER] Assets cached in {cache_time}ms")
 
-    server = await asyncio.start_server(handle_client, "0.0.0.0", 80)
-    return server
+        server = await asyncio.start_server(handle_client, "0.0.0.0", 80)
+        SERVER_TASK = server  # Store reference for health monitoring
+        server_ready = time.ticks_ms()
+        startup_time = time.ticks_diff(server_ready, server_start)
+        print(f"[SERVER] Web server started in {startup_time}ms on port 80")
+        return server
+    except Exception as e:
+        print(f"[SERVER] Failed to start web server: {e}")
+        SERVER_TASK = None
+        raise
 
 
 async def _ws_recv_frame(reader):
     # minimal websocket frame reader (text frames only, assumes masked from client)
-    hdr = await reader.read(2)
-    if not hdr or len(hdr) < 2:
+    try:
+        hdr = await reader.read(2)
+        if not hdr or len(hdr) < 2:
+            return None
+        b1 = hdr[0]
+        b2 = hdr[1]
+        fin = (b1 & 0x80) != 0
+        opcode = b1 & 0x0F
+        masked = (b2 & 0x80) != 0
+        length = b2 & 0x7F
+        if length == 126:
+            ext = await reader.read(2)
+            if len(ext) < 2:
+                return None
+            length = (ext[0] << 8) | ext[1]
+        elif length == 127:
+            # not expected on small devices
+            ext = await reader.read(8)
+            if len(ext) < 8:
+                return None
+            length = 0
+            for i in range(8):
+                length = (length << 8) | ext[i]
+
+        mask_key = None
+        if masked:
+            mask_key = await reader.read(4)
+            if len(mask_key) < 4:
+                return None
+
+        data = await reader.read(length) if length else b""
+        if length > 0 and len(data) < length:
+            return None
+            
+        if masked and mask_key:
+            data = bytes([data[i] ^ mask_key[i % 4] for i in range(len(data))])
+
+        return opcode, data
+    except OSError:
+        # Connection error (client disconnected)
         return None
-    b1 = hdr[0]
-    b2 = hdr[1]
-    fin = (b1 & 0x80) != 0
-    opcode = b1 & 0x0F
-    masked = (b2 & 0x80) != 0
-    length = b2 & 0x7F
-    if length == 126:
-        ext = await reader.read(2)
-        length = (ext[0] << 8) | ext[1]
-    elif length == 127:
-        # not expected on small devices
-        ext = await reader.read(8)
-        length = 0
-        for i in range(8):
-            length = (length << 8) | ext[i]
-
-    mask_key = None
-    if masked:
-        mask_key = await reader.read(4)
-
-    data = await reader.read(length) if length else b""
-    if masked and mask_key:
-        data = bytes([data[i] ^ mask_key[i % 4] for i in range(len(data))])
-
-    return opcode, data
+    except Exception:
+        # Other errors
+        return None
 
 
 async def _ws_send_text(writer, text):
@@ -684,8 +784,24 @@ async def _ws_send_text(writer, text):
 
 
 async def _handle_websocket(reader, writer, headers, path):
+    import time
+    connection_start = time.ticks_ms()
+    client_addr = "unknown"
+    
+    try:
+        client_addr = writer.get_extra_info('peername')[0] if writer.get_extra_info('peername') else "unknown"
+    except:
+        pass
+    
+    print(f"[WS] Connection attempt from {client_addr} at {time.ticks_ms()}ms")
+    
     # perform handshake
     key = headers.get("sec-websocket-key")
+    if not key:
+        print(f"[WS] No websocket key from {client_addr}")
+        await writer.aclose()
+        return
+        
     accept = None
     try:
         sha = hashlib.sha1()
@@ -694,11 +810,15 @@ async def _handle_websocket(reader, writer, headers, path):
 
         accept = ubinascii.b2a_base64(sha.digest()).decode().strip()
     except Exception as e:
+        print(f"[WS] Handshake error with {client_addr}: {e}")
         try:
             await writer.aclose()
         except Exception:
             pass
         return
+
+    handshake_time = time.ticks_ms()
+    print(f"[WS] Handshake completed for {client_addr} in {time.ticks_diff(handshake_time, connection_start)}ms")
 
     resp = (
         "HTTP/1.1 101 Switching Protocols\r\n"
@@ -708,14 +828,26 @@ async def _handle_websocket(reader, writer, headers, path):
     )
     writer.write(resp)
     await writer.drain()
+    
+    response_sent_time = time.ticks_ms()
+    print(f"[WS] Response sent to {client_addr} in {time.ticks_diff(response_sent_time, handshake_time)}ms")
 
     # Only allow one controlling client at a time
     global WS_CLIENT
     if WS_CLIENT:
+        print(f"[WS] Rejecting {client_addr} - vehicle busy (existing client active)")
         await _ws_send_text(writer, '{"error":"Vehicle is busy"}')
         await writer.aclose()
         return
+    
+    print(f"[WS] Accepting {client_addr} as controlling client")
+    global WS_CLIENT_IP, WS_LAST_PACKET_TIME
     WS_CLIENT = (writer, reader)
+    WS_CLIENT_IP = client_addr
+    WS_LAST_PACKET_TIME = time.ticks_ms()  # Initialize activity timestamp
+    client_connected_time = time.ticks_ms()
+    total_connection_time = time.ticks_diff(client_connected_time, connection_start)
+    print(f"[WS] Client {client_addr} fully connected in {total_connection_time}ms")
 
     # websocket message loop
 
@@ -726,10 +858,13 @@ async def _handle_websocket(reader, writer, headers, path):
 
     while True:
         try:
+            frame_start = time.ticks_ms()
+            
             frame = await _ws_recv_frame(reader)
             if not frame:
-                print("WebSocket: No frame received, closing connection")
                 break
+            
+            frame_recv_time = time.ticks_ms()
             opcode, data = frame
             # opcode 8 = close
             if opcode == 8:
@@ -747,9 +882,9 @@ async def _handle_websocket(reader, writer, headers, path):
                 print(f"WebSocket: Error decoding message: {e}")
                 continue
 
-            # parse JSON command
-            import json
+            decode_time = time.ticks_ms()
 
+            # parse JSON command
             try:
                 pkt = json.loads(text)
             except Exception as e:
@@ -759,6 +894,8 @@ async def _handle_websocket(reader, writer, headers, path):
             if not pkt or not isinstance(pkt, dict):
                 continue
 
+            json_time = time.ticks_ms()
+
             # Check if this is a control packet (has axisMotors, functionMotors, etc.) or action packet
             action = pkt.get("action")
             if action:
@@ -766,45 +903,120 @@ async def _handle_websocket(reader, writer, headers, path):
                 if mc and action == "set":
                     name = pkt.get("name")
                     dir = pkt.get("dir", "fwd")
-                    power = float(pkt.get("power", 0))
+                    power = int(pkt.get("power", 0))  # Integer 0-100 power
                     mc.motor_controller.set_motor(name, dir, power)
                 elif mc and action == "stop":
                     mc.motor_controller.stop_motor(pkt.get("name"))
                 elif mc and action == "stop_all":
                     mc.motor_controller.stop_all()
             else:
-                # Handle modern control packets via control processor
-                vehicle_websocket_handler(text, writer)
+                # Handle modern control packets via packet queue for real-time processing
+                global WS_LAST_PACKET_TIME, WS_PENDING_PACKET, WS_PROCESSING_PACKET
+                WS_LAST_PACKET_TIME = time.ticks_ms()  # Update activity timestamp
+                
+                # Replace any pending packet with this new one (latest is most relevant)
+                if WS_PENDING_PACKET:
+                    print(f"[WS] Dropped pending packet (replaced by newer one)")
+                WS_PENDING_PACKET = text
+                
+                # Process immediately if not currently processing
+                if not WS_PROCESSING_PACKET:
+                    WS_PROCESSING_PACKET = True
+                    try:
+                        while WS_PENDING_PACKET:  # Process all pending (should be just one)
+                            current_packet = WS_PENDING_PACKET
+                            WS_PENDING_PACKET = None  # Clear before processing
+                            vehicle_websocket_handler(current_packet, writer)
+                    finally:
+                        WS_PROCESSING_PACKET = False
+            
+            process_time = time.ticks_ms()
+            
+            # Log timing breakdown for performance analysis (reduced frequency)
+            frame_time = time.ticks_diff(frame_recv_time, frame_start)
+            decode_duration = time.ticks_diff(decode_time, frame_recv_time) 
+            json_duration = time.ticks_diff(json_time, decode_time)
+            process_duration = time.ticks_diff(process_time, json_time)
+            total_time = time.ticks_diff(process_time, frame_start)
+            
+            # Only log detailed timing breakdown every 25th packet (reduced from 10th)
+            if _packet_counter % 25 == 1:
+                # Calculate inter-packet timing
+                global _last_packet_arrival
+                current_time = time.ticks_ms()
+                inter_packet_gap = time.ticks_diff(current_time, _last_packet_arrival) if _last_packet_arrival > 0 else 0
+                _last_packet_arrival = current_time
+                
+                # Add frame analysis for network debugging - but limit extreme values
+                frame_analysis = ""
+                frame_time_clamped = max(0, min(frame_time, 10000))  # Clamp to reasonable range
+                if frame_time_clamped > 100:  # Significant frame delay
+                    frame_analysis = f" [SLOW_FRAME]"
+                elif frame_time_clamped < 10:  # Very fast frame
+                    frame_analysis = f" [FAST_FRAME]"
+                
+                # Warn about suspicious timing
+                if frame_time > 5000:
+                    frame_analysis += f" [SUSPICIOUS_TIMING]"
+                    
+                # Timing logging removed for cleaner output
 
+        except OSError as e:
+            # Handle connection errors (normal when client disconnects)
+            if e.errno == 113:  # ECONNABORTED - client closed connection
+                print(f"[WS] Client {client_addr} disconnected (ECONNABORTED)")
+                break
+            elif e.errno == 104:  # ECONNRESET - connection reset by peer
+                print(f"[WS] Client {client_addr} connection reset by peer")
+                break
+            else:
+                print(f"[WS] Connection error with {client_addr}: {e} (errno={e.errno})")
+                break
         except Exception as e:
-            print(f"WebSocket: Error in message loop: {e}")
+            print(f"[WS] Unexpected error with {client_addr}: {e}")
             break
 
-    print("WebSocket: Connection closing, cleaning up...")
+    # Clean up connection with detailed logging
+    cleanup_start = time.ticks_ms()
+    print(f"[WS] Starting cleanup for {client_addr}")
+    
     try:
-        await writer.aclose()
+        if hasattr(writer, 'close'):
+            writer.close()
+        elif hasattr(writer, 'aclose'):
+            await writer.aclose()
+    except OSError as e:
+        # Connection already closed - normal when client disconnects abruptly
+        print(f"[WS] Connection to {client_addr} already closed during cleanup (errno={e.errno})")
     except Exception as e:
-        print(f"WebSocket: Error closing writer: {e}")
-    # unregister client
+        print(f"[WS] Error closing connection to {client_addr}: {e}")
+    
+    # Unregister client
+    global WS_CLIENT_IP, WS_LAST_PACKET_TIME, WS_PENDING_PACKET, WS_PROCESSING_PACKET
     if WS_CLIENT and WS_CLIENT[0] == writer:
         WS_CLIENT = None
-        print("WebSocket: Client unregistered")
+        WS_CLIENT_IP = None
+        WS_LAST_PACKET_TIME = None
+        # Clear any pending packets to free memory
+        WS_PENDING_PACKET = None
+        WS_PROCESSING_PACKET = False
+        print(f"[WS] Client {client_addr} unregistered as controlling client")
+    else:
+        print(f"[WS] Warning: {client_addr} was not the registered controlling client during cleanup")
+    
+    cleanup_time = time.ticks_diff(time.ticks_ms(), cleanup_start)
+    total_session_time = time.ticks_diff(time.ticks_ms(), connection_start)
+    print(f"[WS] Cleanup completed for {client_addr} in {cleanup_time}ms, total session: {total_session_time}ms")
 
 
-async def _keep_alive():
-    # keeps asyncio loop alive
-    while True:
-        await asyncio.sleep(1)
+# Health check system removed per user request - was too complex and causing overhead
 
 
 def run():
     # Use existing event loop for MicroPython compatibility
     loop = asyncio.get_event_loop()
 
-    loop.create_task(start_web_server())
-    loop.create_task(_keep_alive())
-
-    # Initialize control processor with motor and function controllers
+    # Initialize control processor with motor and function controllers first
     try:
         import control.motor_controller as mc
         import control.control_processor as cp
@@ -824,7 +1036,8 @@ def run():
     except Exception as e:
         print(f"Control processor initialization error: {e}")
 
-    # Motor controller no longer has a watchdog - control_processor handles safety
-    # Control processor watchdog is started automatically when initialized
+    # Start web server as a task (MicroPython compatible)
+    loop.create_task(start_web_server())
     
+    # Run event loop forever
     loop.run_forever()

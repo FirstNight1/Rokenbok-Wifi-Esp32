@@ -251,8 +251,6 @@ def get_config_value(key, default=None):
 def save_config_value(key, value):
     global _cached_config
     
-    print(f"DEBUG: save_config_value() called - key='{key}', value='{value}'")
-    
     if _cached_config is None:
         _cached_config = minimal_default_config()
 
@@ -274,8 +272,6 @@ def save_config_value(key, value):
 def save_config(cfg):
     global _cached_config
     
-    print(f"DEBUG: save_config() called")
-
     # Update cache first
     _cached_config = cfg
 

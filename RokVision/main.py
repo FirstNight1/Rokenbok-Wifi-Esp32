@@ -38,7 +38,6 @@ if led_enabled:
 # ---- Run both web server and camera stream in single asyncio event loop ----
 import uasyncio as asyncio
 from cam.camera_stream import start_stream
-import _thread
 
 
 async def main():
@@ -70,19 +69,16 @@ async def main():
     except Exception as e:
         print(f"System error: {e}")
         import sys
-
         sys.print_exception(e)
 
 
-# Run the main async function in a background thread
-def run_asyncio_thread():
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        print(f"Failed to start system: {e}")
-        import sys
-
-        sys.print_exception(e)
-
-
-_thread.start_new_thread(run_asyncio_thread, ())
+# Run async main directly (no threading)
+print("Starting system in async mode...")
+try:
+    asyncio.run(main())
+except KeyboardInterrupt:
+    print("\nSystem shutdown requested")
+except Exception as e:
+    print(f"Failed to start system: {e}")
+    import sys
+    sys.print_exception(e)

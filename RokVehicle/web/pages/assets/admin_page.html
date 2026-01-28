@@ -71,6 +71,20 @@
                 </small>
             </div>
 
+            <div
+                style="border: 1px solid #ccc; padding: 15px; margin: 15px 0; border-radius: 5px; background: #f9f9f9;">
+                <h3 style="margin-top: 0; color: #333;">Control Packet Configuration</h3>
+                
+                <label>Keepalive Packet Interval (ms):</label><br>
+                <input type="number" name="keepaliveIntervalMs" value="{{ keepalive_interval }}" min="50" max="2000" step="10" style="width: 120px;">
+                <br>
+                <small style="color: #666;">
+                    How often to send keepalive packets during sustained control input to prevent motor timeout. 
+                    <br>Higher values reduce network load but must be less than motor safety timeout. 
+                    <br>Recommended: 200ms for local, 300-500ms for internet operation.
+                </small>
+            </div>
+
             <button type="submit" name="save" value="1">Save</button>
             <button type="submit" name="cancel" value="1">Cancel</button>
         </form>

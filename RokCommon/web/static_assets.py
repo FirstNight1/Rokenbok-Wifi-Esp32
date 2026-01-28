@@ -81,7 +81,6 @@ def clear_template_cache():
     """Clear template cache to free memory or reload templates"""
     global _template_cache
     _template_cache.clear()
-    gc.collect()
 
 
 def enable_template_cache(enabled=True):

@@ -1,6 +1,5 @@
 import machine
 import time
-import _thread
 
 # Available pins for vehicle LEDs (including busy LED) - ESP32-S3 pinout mapping
 VEHICLE_LED_PINS = {

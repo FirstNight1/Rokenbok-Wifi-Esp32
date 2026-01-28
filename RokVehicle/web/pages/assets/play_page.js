@@ -23,9 +23,14 @@ const state = {
     lastControlActiveTime: 0, // Track when controls were last active for abandonment timeout
     controlAbandonmentMs: 60000, // 1 minute timeout
     
+    // Rate limiting for ESP32 protection
+    lastSendTime: 0,         // Track last send time for rate limiting
+    minSendInterval: 15,     // Minimum 15ms between packets
+    
     // Axis jitter handling for tank mode
     tankModeSnapshot: null,  // Snapshot taken at intervals for tank mode
     tankModeSnapshotInterval: null,  // Interval for taking snapshots in tank mode
+    dpadModeSnapshot: null,  // Snapshot for detecting state changes in dpad mode
 
     // Vehicle Configuration
     vehicleConfig: {
@@ -53,7 +58,9 @@ const state = {
 
 // --- Constants ---
 const DEADZONE = 0.1;
-const KEEPALIVE_INTERVAL = 140; // ms, for motor watchdog (7 * 20ms polling)
+const GAMEPAD_POLL_INTERVAL = 20; // ms, fixed gamepad polling rate
+let KEEPALIVE_INTERVAL = 200; // ms, default keepalive interval
+let KEEPALIVE_POLL_COUNT = 10; // Dynamic poll count based on keepalive interval
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -123,7 +130,7 @@ function initGamepad() {
     scanGamepads();
     // Start the main control loop
     if (state.gamepadPollInterval) clearInterval(state.gamepadPollInterval);
-    state.gamepadPollInterval = setInterval(gamepadLoop, 20);
+    state.gamepadPollInterval = setInterval(gamepadLoop, GAMEPAD_POLL_INTERVAL);
     
     // Initialize drive mode specific handling
     initDriveModeHandling();
@@ -133,16 +140,56 @@ function initGamepad() {
  * Initializes the WebSocket connection.
  */
 function initWebSocket() {
-    if (state.ws && state.ws.readyState === WebSocket.OPEN) return;
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        console.log('[DEBUG] WebSocket already open, not creating new connection');
+        return;
+    }
+    
+    // Clean up any existing connection
+    if (state.ws) {
+        console.log(`[DEBUG] Closing existing WebSocket (state: ${state.ws.readyState})`);
+        try {
+            state.ws.close();
+        } catch (e) {
+            console.log(`[DEBUG] Error closing existing WebSocket: ${e}`);
+        }
+    }
 
     const wsUrl = `ws://${location.host}/ws`;
+    console.log(`[DEBUG] WebSocket connecting to ${wsUrl} at ${new Date().toLocaleTimeString()}`);
     try {
         state.ws = new WebSocket(wsUrl);
+        
+        // Add timeout detection for connection
+        let connectionTimeout = setTimeout(() => {
+            if (state.ws && state.ws.readyState === WebSocket.CONNECTING) {
+                console.log('[DEBUG] WebSocket connection timeout after 10 seconds');
+                state.ws.close();
+                updateConnectionStatusUI('Timeout');
+            }
+        }, 10000);
+        
         state.ws.onopen = () => {
+            clearTimeout(connectionTimeout);
+            console.log(`[DEBUG] WebSocket connected at ${new Date().toLocaleTimeString()}`);
             state.isConnected = true;
             updateConnectionStatusUI('Connected');
+            
+            // Restart control loops after reconnection
+            console.log('[DEBUG] Restarting control intervals after reconnection');
+            if (!state.gamepadPollInterval) {
+                state.gamepadPollInterval = setInterval(gamepadLoop, GAMEPAD_POLL_INTERVAL);
+                console.log('[DEBUG] Gamepad polling interval restarted');
+            }
+            
+            // Restart drive mode specific intervals
+            if (state.driveMode === 'tank' && !state.tankModeSnapshotInterval) {
+                state.tankModeSnapshotInterval = setInterval(processTankModeSnapshot, 80);
+                console.log('[DEBUG] Tank mode snapshot interval restarted');
+            }
         };
-        state.ws.onclose = () => {
+        state.ws.onclose = (event) => {
+            console.log(`[DEBUG] WebSocket closed at ${new Date().toLocaleTimeString()}, code: ${event.code}, reason: ${event.reason}`);
             state.isConnected = false;
             updateConnectionStatusUI('Disconnected');
             // Clear intervals when disconnected
@@ -158,8 +205,12 @@ function initWebSocket() {
                 clearInterval(state.tankModeSnapshotInterval);
                 state.tankModeSnapshotInterval = null;
             }
-            // Optional: try to reconnect
-            setTimeout(initWebSocket, 3000);
+            // Retry connection with backoff
+            console.log(`[DEBUG] Scheduling reconnection in 3 seconds...`);
+            setTimeout(() => {
+                console.log(`[DEBUG] Attempting WebSocket reconnection...`);
+                initWebSocket();
+            }, 3000);
         };
         state.ws.onerror = (err) => {
             console.error('WebSocket Error:', err);
@@ -178,10 +229,35 @@ function initWebSocket() {
 // --- Configuration Management ---
 
 /**
+ * Loads keepalive configuration from the server
+ */
+async function loadKeepAliveConfig() {
+    try {
+        const response = await fetch('/admin?config=keepalive');
+        if (response.ok) {
+            const config = await response.json();
+            if (config.keepalive_interval_ms) {
+                KEEPALIVE_INTERVAL = config.keepalive_interval_ms;
+                // Calculate how many polls to skip: floor(keepalive_interval / gamepad_poll_interval)
+                KEEPALIVE_POLL_COUNT = Math.floor(KEEPALIVE_INTERVAL / GAMEPAD_POLL_INTERVAL);
+                // Ensure minimum of 1 poll
+                KEEPALIVE_POLL_COUNT = Math.max(1, KEEPALIVE_POLL_COUNT);
+                console.log(`[CONFIG] Keepalive: ${KEEPALIVE_INTERVAL}ms (every ${KEEPALIVE_POLL_COUNT} polls)`);
+            }
+        }
+    } catch (error) {
+        console.warn('[CONFIG] Failed to load keepalive config, using defaults:', error);
+    }
+}
+
+/**
  * Loads all configuration from the server.
  */
 async function loadConfiguration() {
     try {
+        // Load keepalive configuration first
+        await loadKeepAliveConfig();
+        
         const response = await fetch('/play?config=1');
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const config = await response.json();
@@ -325,7 +401,7 @@ function gamepadLoop() {
     
     // Send control packet based on drive mode and timing
     if (state.driveMode === 'dpad') {
-        // D-pad mode: use immediate sending with every-third logic
+        // D-pad mode: send on state changes and for watchdog keepalive
         sendControlPacketIfNeeded();
     } else {
         // Tank mode: snapshot approach handled by interval to avoid axis jitter
@@ -605,6 +681,11 @@ function processControl(key, isActive, sendActive, sendStop) {
  * Stops all motors by clearing the control state.
  */
 function stopAllMotors() {
+    // Check if we actually have active controls before sending stop
+    const hasActiveControls = Object.keys(state.activeControls.axisMotors).length > 0 ||
+                             Object.keys(state.activeControls.functionMotors).length > 0 ||
+                             Object.keys(state.activeControls.logicFunctions).length > 0;
+    
     // Clear all active controls
     state.activeControls.axisMotors = {};
     state.activeControls.functionMotors = {};
@@ -615,8 +696,10 @@ function stopAllMotors() {
         state.controlState[key].active = false;
     });
     
-    // Send the cleared state immediately
-    sendControlPacket();
+    // Only send packet if we're connected and had active controls to clear
+    if (state.isConnected && hasActiveControls) {
+        sendControlPacket();
+    }
 }
 
 
@@ -744,11 +827,13 @@ function sendControlPacketIfNeeded() {
     
     const currentControls = JSON.stringify(state.activeControls);
     const hasChanged = currentControls !== state.lastSentControls;
+    
     const now = Date.now();
     
-    // Check if any controls are currently active
-    const hasActiveMotors = Object.keys(state.activeControls.axisMotors).length > 0 || 
-                           Object.keys(state.activeControls.functionMotors).length > 0;
+    // Check if any controls are currently active (with non-zero values)
+    const hasActiveMotors = Object.values(state.activeControls.axisMotors || {}).some(motor => 
+                               motor && motor.power > 0) ||
+                           Object.keys(state.activeControls.functionMotors || {}).length > 0;
     const hasActiveLogicFunctions = Object.keys(state.activeControls.logicFunctions).length > 0;
     const hasAnyActiveControls = hasActiveMotors || hasActiveLogicFunctions;
     
@@ -773,13 +858,25 @@ function sendControlPacketIfNeeded() {
     // Send immediately on any state change (button press/release)
     if (hasChanged) {
         sendControlPacket();
+        state.pollCount = 0; // Reset poll count after sending
         return;
     }
     
-    // Send every 7th poll (140ms) if ANY controls are active to keep watchdog happy
-    // This prevents the 400ms watchdog timeout from stopping motors during sustained input
+    // Handle controller abandonment (logic functions only)
+    if (isAbandoned && hasActiveLogicFunctions && !hasActiveMotors) {
+        // Turn off abandoned logic functions
+        console.log('Controller abandoned - turning off logic functions');
+        state.activeControls.logicFunctions = {};
+        state.lastControlActiveTime = now; // Reset to prevent immediate re-trigger
+        sendControlPacket();
+        state.pollCount = 0; // Reset poll count after sending
+        return;
+    }
+    
+    // Send every poll count based on keepalive interval if ANY controls are active to keep watchdog happy
+    // This prevents the motor safety timeout from stopping motors during sustained input
     state.pollCount++;
-    if (state.pollCount >= 7 && hasAnyActiveControls) {
+    if (state.pollCount >= KEEPALIVE_POLL_COUNT && hasAnyActiveControls) {
         sendControlPacket();
         state.pollCount = 0;
     }
@@ -791,9 +888,29 @@ function sendControlPacketIfNeeded() {
 function sendControlPacket() {
     if (!state.isConnected) return;
     
+    // Rate limiting to prevent ESP32 overload
+    const now = performance.now();
+    if (now - state.lastSendTime < state.minSendInterval) {
+        // Too soon since last send - skip this packet
+        return;
+    }
+    state.lastSendTime = now;
+    
+    // Add packet tracking
+    if (!sendControlPacket.packetCount) sendControlPacket.packetCount = 0;
+    sendControlPacket.packetCount++;
+    
     state.ws.send(JSON.stringify(state.activeControls));
     state.lastSentControls = JSON.stringify(state.activeControls);
     state.pollCount = 0; // Reset poll count after sending
+    
+    // Simple single line logging every 20th packet  
+    if (sendControlPacket.packetCount % 20 === 1) {
+        const axisCount = Object.keys(state.activeControls.axisMotors || {}).length;
+        const functionCount = Object.keys(state.activeControls.functionMotors || {}).length;
+        const logicCount = Object.keys(state.activeControls.logicFunctions || {}).length;
+        console.log(`[TX] Pkt#${sendControlPacket.packetCount} ${new Date().toLocaleTimeString()}.${new Date().getMilliseconds()} A${axisCount}F${functionCount}L${logicCount}`);
+    }
 }
 
 /**

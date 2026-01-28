@@ -21,7 +21,6 @@ def yielding_sleep(duration):
     end_time = time.time() + duration
     while time.time() < end_time:
         time.sleep_ms(50)  # 50ms chunks to yield frequently
-        gc.collect()  # Help with memory management
 
 
 # ---------------------------------------------------------
@@ -239,7 +238,11 @@ def connect_to_wifi():
             else:
                 status_desc = f"UNKNOWN({status})"
             
-            print(f"  Check {check+1}/{max_checks}: Status={status} ({status_desc})")
+            # Skip logging for unknown statuses to reduce noise
+            if status not in [-3, -2, -1, 0, 1, 3]:
+                pass  # Don't log unknown status codes
+            else:
+                print(f"  Check {check+1}/{max_checks}: Status={status} ({status_desc})")
             
             if status == network.STAT_WRONG_PASSWORD:
                 print("✗ Authentication failed (may be network congestion, not wrong password)")

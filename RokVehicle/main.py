@@ -52,14 +52,10 @@ if led_enabled:
     # Update network status LED
     network_led.set_wifi_status()
 
-# ---- Start async web server (non-blocking) ----
-import _thread
+# ---- Start async web server (async-only, no threading) ----
+print("Starting web server in async mode...")
 
+# Run web server in main async loop instead of separate thread
+web.web_server.run()
 
-def start_server_thread():
-    _thread.start_new_thread(web.web_server.run, ())
-
-
-start_server_thread()
-
-print("System ready — async server running in background.")
+print("System ready — async server running.")

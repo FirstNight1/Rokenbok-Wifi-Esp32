@@ -80,43 +80,19 @@ def handle_get_legacy(query_string=None):
     vtype, vehicle_name, info = get_vehicle_info()
     vehicle_name = vehicle_name or ""
 
-    # Bluetooth scan endpoint
+    # Bluetooth scan endpoint (not implemented yet)
     if query_string and "bluetooth_scan" in query_string:
-        from bluetooth_controller import controller
-        import uasyncio as asyncio
-
-        loop = asyncio.get_event_loop()
-        devices = loop.run_until_complete(controller.scan(3000))
-        # Return name/address for each device
+        # Return empty device list since bluetooth is not implemented
         return (
             "200 OK",
             "application/json",
-            json.dumps(
-                {
-                    "devices": [
-                        {
-                            "name": d["name"] or "Unknown",
-                            "addr": d["addr"].hex(),
-                            "addr_type": d["addr_type"],
-                            "rssi": d["rssi"],
-                        }
-                        for d in devices
-                    ]
-                }
-            ),
+            json.dumps({"devices": []}),
         )
 
-    # Bluetooth pair endpoint
+    # Bluetooth pair endpoint (not implemented yet)
     if query_string and "bluetooth_pair" in query_string:
-        from bluetooth_controller import controller
-        import uasyncio as asyncio
-
-        addr_hex = query_string.split("bluetooth_pair=")[1].split("&")[0]
-        addr = bytes.fromhex(addr_hex)
-        # For now, assume addr_type=0 (public)
-        loop = asyncio.get_event_loop()
-        ok = loop.run_until_complete(controller.pair(0, addr))
-        return ("200 OK", "application/json", json.dumps({"success": ok}))
+        # Return failure since bluetooth is not implemented
+        return ("200 OK", "application/json", json.dumps({"success": False}))
 
     # If ?config=1, return JSON config for JS (now includes mapping)
     if query_string and "config=1" in query_string:

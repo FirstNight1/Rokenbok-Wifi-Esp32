@@ -413,16 +413,12 @@ def handle_get_legacy():
 
 
 def handle_post_legacy(body, cfg):
-    print(f"DEBUG: POST handler called")
-    print(f"DEBUG: Raw body: {body}")
-
     # Initialize updated flag first
     updated = False
 
     # Try JSON parsing first, then fall back to form parsing
     try:
         fields = json.loads(body or "{}")
-        print(f"DEBUG: Parsed as JSON: {fields}")
     except Exception:
         # Try URL form parsing for form submissions using simple parsing
         try:
@@ -442,14 +438,10 @@ def handle_post_legacy(body, cfg):
                         if '%' in value:
                             value = value.replace('%2B', '+').replace('%3D', '=').replace('%26', '&')
                         fields[key] = value
-                print(f"DEBUG: Parsed as form data: {fields}")
         except Exception as e:
             fields = {}
-            print(f"DEBUG: Failed to parse body: {e}")
 
     action = fields.get("action")
-    print(f"DEBUG: Action: {action}")
-    print(f"DEBUG: All fields: {fields}")
 
     import control.motor_controller as mc
 
@@ -467,7 +459,6 @@ def handle_post_legacy(body, cfg):
             # which could reload default config values
         except Exception as e:
             print(f"ERROR saving tracking adjustment: {e}")
-            print(f"DEBUG: Exception type: {type(e)}")
             import sys
             sys.print_exception(e)
             # Don't save 0.0 on error - let user know there was a problem

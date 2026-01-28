@@ -96,7 +96,7 @@ class Motor:
             self.running = False
 
     def set_output_axis(self, direction, power, use_slow_mode=False):
-        # Axis motor: power is 0..1, mapped to [min_power..max_power]
+        # Axis motor: power is 0..100 integer, mapped to [min_power..max_power]
         try:
             if not self.pwm_a or not self.pwm_b:
                 return  # PWM not available
@@ -110,8 +110,10 @@ class Motor:
                 else:
                     max_p = self.max_power if self.max_power is not None else MAX_DUTY
                 
-                p = max(0.0, min(1.0, float(power)))
-                duty = int(min_p + p * (max_p - min_p))
+                # Clamp power to 0-100 and use integer math
+                p = max(0, min(100, int(power)))
+                # Use integer math: duty = min_p + (p * (max_p - min_p)) / 100
+                duty = int(min_p + (p * (max_p - min_p)) // 100)
 
             forward = direction == "fwd"
             if self.reversed:
@@ -228,7 +230,6 @@ class MotorController:
         try:
             # Use in-place reinitialization instead of creating new instance
             self.reload_config_and_reinit()
-            print(f"Motor assignments updated and applied immediately: {motor_numbers}")
         except Exception as e:
             print(f"Error applying motor assignments: {e}")
             print("Motor assignments saved but may require restart")
@@ -350,7 +351,6 @@ class MotorController:
 
     def reload_config_and_reinit(self):
         """Reload configuration and reinitialize all motors in-place"""
-        print("Reloading motor controller configuration...")
         
         # Deinitialize all current motors
         self.deinit_all()
@@ -446,8 +446,6 @@ class MotorController:
         if motor_numbers != get_config_value("motor_numbers", {}):
             save_config_value("motor_numbers", motor_numbers)
         
-        print("Motor controller reloaded and reinitialized")
-
         # Load motor safety timeout from config (default 400ms for good responsiveness)
         self.timeout_ms = get_config_value("motor_safety_timeout_ms", 400)
 
@@ -456,7 +454,6 @@ class MotorController:
         new_timeout = get_config_value("motor_safety_timeout_ms", 400)
         if new_timeout != self.timeout_ms:
             self.timeout_ms = new_timeout
-            print(f"Motor safety timeout updated to {self.timeout_ms}ms")
 
     # --------------------
     # Public API
@@ -484,18 +481,18 @@ class MotorController:
             adjusted_percentage = power_percentage
             if name in ["left", "right"] and power_percentage > 0:
                 tracking_adjustment = get_config_value("drive_tracking_adjustment", 0.0)
-                if tracking_adjustment != 0.0:
-                    adjustment_factor = abs(tracking_adjustment) / 100.0
+                if tracking_adjustment != 0:
+                    adjustment_factor = abs(tracking_adjustment)
                     # If tracking_adjustment is positive, vehicle tracks right, so reduce left motor
                     # If tracking_adjustment is negative, vehicle tracks left, so reduce right motor
                     if (tracking_adjustment > 0 and name == "left") or (tracking_adjustment < 0 and name == "right"):
-                        adjusted_percentage = power_percentage * (1.0 - adjustment_factor)
+                        # Use integer math: adjusted = power * (100 - adjustment) / 100
+                        adjusted_percentage = (power_percentage * (100 - adjustment_factor)) // 100
             
-            # Convert percentage to 0-1 normalized value
-            normalized_power = adjusted_percentage / 100.0
+            # Power stays as 0-100 integer - no conversion needed
             
-            # Set output with slow mode flag
-            m.set_output(direction, normalized_power, mode="axis", use_slow_mode=use_slow_mode)
+            # Set output with slow mode flag (power stays as integer 0-100)
+            m.set_output(direction, adjusted_percentage, mode="axis", use_slow_mode=use_slow_mode)
             
         elif name in self.motor_functions:
             # Function motor: simple on/off based on power percentage

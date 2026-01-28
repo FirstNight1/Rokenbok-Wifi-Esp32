@@ -30,6 +30,9 @@ class ControlProcessor:
         # Function motor timing for travel safety
         self.function_motor_timers = {}
         
+        # Cache for travel safety motor lookups to avoid repeated expensive traversals
+        self._travel_safety_cache = {}
+        
         # Current active controls state
         self.current_controls = {
             "axisMotors": {},
@@ -84,18 +87,22 @@ class ControlProcessor:
     
     def process_packet(self, packet):
         """Process a control packet with motor commands"""
-        import time
-        
         packet_start = time.ticks_ms()
         self.last_packet_time = packet_start
         self.controls_active = True  # Mark controls as active when packet received
         
+        # Simple packet counter for logging
+        if not hasattr(self, 'process_count'):
+            self.process_count = 0
+        self.process_count += 1
+        
         # Extract function motors from packet for reuse
         function_motors = packet.get("functionMotors", {})
         
-        # Update function motor timers first - accumulate time for previous directions
+        # Update function motor timers only if function motors are present
         timer_start = time.ticks_ms()
-        self._update_function_motor_timers(function_motors)
+        if function_motors or self.current_controls.get("functionMotors"):
+            self._update_function_motor_timers(function_motors)
         timer_end = time.ticks_ms()
         
         # Process axis motors
@@ -130,8 +137,8 @@ class ControlProcessor:
         
         # Update current control state
         self.current_controls = {
-            "axisMotors": dict(axis_motors),  # Copy the dict
-            "functionMotors": dict(function_motors),
+            "axisMotors": axis_motors,  # Direct assignment instead of copy
+            "functionMotors": function_motors,
             "logicFunctions": packet.get("logicFunctions", {})
         }
         
@@ -142,18 +149,18 @@ class ControlProcessor:
         for func_name, is_active in logic_functions.items():
             self.set_logic_function(func_name, is_active)
         
-        # Stop logic functions not in the active list (using old state)
+        # Stop logic functions not in the active list
         current_logic = set(logic_functions.keys())
         previous_logic = set(self.current_controls.get("logicFunctions", {}).keys())
         for func_name in (previous_logic - current_logic):
             self.set_logic_function(func_name, False)
         
-        # Update current state after all processing
-        self.current_controls = packet.copy()
-        
         # If all controls are now zero/inactive, mark controls as inactive to disable watchdog
         if not self._has_active_motor_controls():
             self.controls_active = False
+            
+        # Processing complete - timing logging removed for cleaner output
+        self.process_count += 1
     
     def run_axis_motor(self, name, direction, power_percentage, use_slow_mode):
         """Run an axis motor with specified parameters"""
@@ -168,11 +175,16 @@ class ControlProcessor:
         if self.motor_controller:
             try:
                 # Check travel safety before running
-                if self._check_function_motor_travel_safety(name, direction):
+                safety_check = self._check_function_motor_travel_safety(name, direction)
+                if safety_check == "allowed":
                     self.motor_controller.run_motor(name, direction, 100, False)
-                else:
-                    print(f"Travel safety prevented {name} motor in {direction} direction")
-                    
+                elif safety_check == "limit_reached":
+                    # Actively stop the motor when limit is reached
+                    print(f"Travel limit reached for {name} motor in {direction} direction - stopping motor")
+                    self.motor_controller.stop_motor(name)
+                elif safety_check == "locked":
+                    print(f"Motor {name} is locked in {direction} direction")
+                    self.motor_controller.stop_motor(name)
             except Exception as e:
                 print(f"Error running function motor {name}: {e}")
     
@@ -235,96 +247,146 @@ class ControlProcessor:
         return False
     
     def _update_function_motor_timers(self, function_motors=None):
-        """Update travel safety timers for function motors"""
+        """Update travel safety timers for function motors (optimized)"""
+        # Early exit if no function motors and no existing timers
+        motors_to_check = function_motors if function_motors is not None else self.current_controls.get("functionMotors", {})
+        if not motors_to_check and not self.function_motor_timers:
+            return
+        
         now = time.ticks_ms()
         
-        # Initialize timers for any new function motors in current_controls or new packet
-        # Only create timers for motors that have travel safety enabled
-        motors_to_check = function_motors if function_motors is not None else self.current_controls.get("functionMotors", {})
+        # Only process motors that actually have travel safety enabled
         for motor_name in motors_to_check:
-            if motor_name not in self.function_motor_timers:
-                # Only create timer if motor has travel safety enabled
-                if self._motor_has_travel_safety(motor_name):
-                    self.function_motor_timers[motor_name] = {
-                        "forward_time": 0.0,
-                        "reverse_time": 0.0,
-                        "last_update": now,
-                        "forward_locked": False,
-                        "reverse_locked": False
-                    }
+            if motor_name not in self.function_motor_timers and self._motor_has_travel_safety(motor_name):
+                self.function_motor_timers[motor_name] = {
+                    "forward_time": 0.0,
+                    "reverse_time": 0.0,
+                    "last_update": now,
+                    "forward_locked": False,
+                    "reverse_locked": False
+                }
         
-        # Update existing timers based on what was running since last packet
-        # Only update timers for motors that have travel safety enabled
+        # Update existing timers - only for motors that were previously running
         for motor_name, timer_data in self.function_motor_timers.items():
-            # Skip if motor no longer has travel safety enabled
-            if not self._motor_has_travel_safety(motor_name):
-                continue
-                
             last_update = timer_data["last_update"]
             elapsed_ms = time.ticks_diff(now, last_update)
             elapsed_sec = elapsed_ms / 1000.0
             
             # Check if this motor was running in current_controls (from previous packet)
             previous_motor_data = self.current_controls.get("functionMotors", {}).get(motor_name)
-            if previous_motor_data:  # Motor was on
+            if previous_motor_data and elapsed_sec > 0:  # Motor was on and time has elapsed
                 direction = previous_motor_data.get("dir", "fwd")
                 
-                # Store old timer values for halfway point detection
+                # Store old times for halfway point detection
                 old_forward_time = timer_data["forward_time"]
                 old_reverse_time = timer_data["reverse_time"]
                 
-                # Add elapsed time to appropriate direction
-                if direction == "fwd":
+                # Only accumulate time if the direction is not locked
+                if direction == "fwd" and not timer_data.get("forward_locked", False):
                     timer_data["forward_time"] += elapsed_sec
                     
-                    # Check if we crossed the halfway point and reset reverse timer
-                    if self.motor_controller and hasattr(self.motor_controller, 'motor_functions'):
+                    # Check for halfway crossing to unlock reverse (ABSOLUTE requirement)
+                    if self._motor_has_travel_safety(motor_name):
                         motor = self.motor_controller.motor_functions.get(motor_name)
                         if motor and hasattr(motor, 'travel_forward_limit'):
                             halfway_point = motor.travel_forward_limit / 2.0
+                            # If we crossed halfway point, ALWAYS unlock reverse
                             if old_forward_time < halfway_point <= timer_data["forward_time"]:
+                                if timer_data.get("reverse_locked", False):
+                                    timer_data["reverse_locked"] = False
+                                    print(f"HALFWAY: {motor_name} forward crossed halfway ({halfway_point:.1f}s) - unlocked reverse")
+                                # Also reset reverse timer since we're moving away from reverse limit
                                 timer_data["reverse_time"] = 0.0
-                                timer_data["reverse_locked"] = False
-                                print(f"Motor {motor_name}: Forward crossed halfway, reset reverse timer")
-                else:  # reverse
+                        
+                        # Check if we hit the forward limit
+                        if motor and timer_data["forward_time"] >= motor.travel_forward_limit:
+                            timer_data["forward_locked"] = True
+                            print(f"Forward travel limit reached for {motor_name}: {timer_data['forward_time']:.1f}s")
+                            
+                elif direction == "rev" and not timer_data.get("reverse_locked", False):
                     timer_data["reverse_time"] += elapsed_sec
                     
-                    # Check if we crossed the halfway point and reset forward timer  
-                    if self.motor_controller and hasattr(self.motor_controller, 'motor_functions'):
+                    # Check for halfway crossing to unlock forward (ABSOLUTE requirement)
+                    if self._motor_has_travel_safety(motor_name):
                         motor = self.motor_controller.motor_functions.get(motor_name)
                         if motor and hasattr(motor, 'travel_reverse_limit'):
                             halfway_point = motor.travel_reverse_limit / 2.0
+                            # If we crossed halfway point, ALWAYS unlock forward
                             if old_reverse_time < halfway_point <= timer_data["reverse_time"]:
+                                if timer_data.get("forward_locked", False):
+                                    timer_data["forward_locked"] = False
+                                    print(f"HALFWAY: {motor_name} reverse crossed halfway ({halfway_point:.1f}s) - unlocked forward")
+                                # Also reset forward timer since we're moving away from forward limit
                                 timer_data["forward_time"] = 0.0
-                                timer_data["forward_locked"] = False
-                                print(f"Motor {motor_name}: Reverse crossed halfway, reset forward timer")
+                        
+                        # Check if we hit the reverse limit
+                        if motor and timer_data["reverse_time"] >= motor.travel_reverse_limit:
+                            timer_data["reverse_locked"] = True
+                            print(f"Reverse travel limit reached for {motor_name}: {timer_data['reverse_time']:.1f}s")
             
             timer_data["last_update"] = now
     
     def _motor_has_travel_safety(self, motor_name):
-        """Check if a motor has travel safety enabled"""
+        """Check if a motor has travel safety enabled (cached for performance)"""
+        # Check cache first
+        if motor_name in self._travel_safety_cache:
+            return self._travel_safety_cache[motor_name]
+        
+        # Compute and cache result
+        has_safety = False
         if self.motor_controller and hasattr(self.motor_controller, 'motor_functions'):
             motor = self.motor_controller.motor_functions.get(motor_name)
-            return motor and hasattr(motor, 'travel_safety_enabled') and motor.travel_safety_enabled
-        return False
+            has_safety = motor and hasattr(motor, 'travel_safety_enabled') and motor.travel_safety_enabled
+        
+        self._travel_safety_cache[motor_name] = has_safety
+        return has_safety
     
     def _check_function_motor_travel_safety(self, name, direction):
         """Check if function motor operation is allowed by travel safety"""
         timer_data = self.function_motor_timers.get(name)
         if not timer_data:
-            return True  # No timer data yet, allow operation (will be initialized on next update)
+            return "allowed"  # No timer data yet, allow operation
+        
+        # Safety check: if both directions are locked, unlock both (should not happen but safety fallback)
+        if timer_data.get("forward_locked", False) and timer_data.get("reverse_locked", False):
+            print(f"WARNING: Both directions locked for {name} - unlocking both for safety")
+            timer_data["forward_locked"] = False
+            timer_data["reverse_locked"] = False
+            # Reset timers to prevent immediate re-lock
+            timer_data["forward_time"] = 0.0
+            timer_data["reverse_time"] = 0.0
         
         # Get travel safety config from motor controller
         if self._motor_has_travel_safety(name):
             motor = self.motor_controller.motor_functions.get(name)
-            if direction == "fwd" and timer_data["forward_time"] >= motor.travel_forward_limit:
-                timer_data["forward_locked"] = True
-                return False
-            elif direction == "rev" and timer_data["reverse_time"] >= motor.travel_reverse_limit:
-                timer_data["reverse_locked"] = True
-                return False
+            if not motor:
+                return "allowed"
+            
+            if direction == "fwd":
+                # Check if forward is locked
+                if timer_data.get("forward_locked", False):
+                    return "locked"
+                # Check if we've reached the limit
+                if timer_data["forward_time"] >= motor.travel_forward_limit:
+                    return "limit_reached"
+                # If we're moving forward, unlock reverse direction (motor is moving away from reverse limit)
+                if timer_data.get("reverse_locked", False):
+                    timer_data["reverse_locked"] = False
+                    print(f"Unlocked reverse direction for {name} (moving forward)")
+                    
+            elif direction == "rev":
+                # Check if reverse is locked
+                if timer_data.get("reverse_locked", False):
+                    return "locked"
+                # Check if we've reached the limit
+                if timer_data["reverse_time"] >= motor.travel_reverse_limit:
+                    return "limit_reached"
+                # If we're moving reverse, unlock forward direction (motor is moving away from forward limit)
+                if timer_data.get("forward_locked", False):
+                    timer_data["forward_locked"] = False
+                    print(f"Unlocked forward direction for {name} (moving reverse)")
         
-        return True
+        return "allowed"
     
     def get_travel_limited_motors(self):
         """Get list of travel-limited motors for status reporting"""

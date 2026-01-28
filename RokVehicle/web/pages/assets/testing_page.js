@@ -80,7 +80,7 @@ async function toggleReversed(name) {
 var ws = null;
 var wsConnected = false;
 
-// per-motor runtime state: { intervalId, timeoutId, gen }
+// per-motor runtime state: { gen }
 var motorsState = {};
 
 // Global active motors state for combined packets
@@ -90,14 +90,61 @@ var activeMotors = {
     logicFunctions: {}
 };
 
-// Track last sent packet and keep-alive counter for optimization
+// Single global timer system for consistent packet sending
+var globalPacketTimer = null;
 var lastSentPacket = null;
-var keepAliveCounter = 0;
-var KEEPALIVE_INTERVAL = 3; // Send keep-alive every 3rd poll (150ms) if no changes
+var packetsSinceChange = 0;
+var motorStopTimers = {}; // Track individual motor stop timers
+
+// Configurable keepalive interval (loaded from admin page settings)
+let KEEPALIVE_INTERVAL = 200; // ms, default keepalive interval
+
+// Load keepalive configuration from admin page
+async function loadKeepAliveConfig() {
+    try {
+        const response = await fetch('/admin?config=keepalive');
+        if (response.ok) {
+            const config = await response.json();
+            if (config && config.keepalive_interval_ms) {
+                KEEPALIVE_INTERVAL = config.keepalive_interval_ms;
+            }
+        }
+    } catch (e) {
+        // Use default interval on error
+    }
+}
 
 function _ensureMotorState(name) {
-    if (!motorsState[name]) motorsState[name] = { intervalId: null, timeoutId: null, gen: 0 };
+    // Simple state tracking - no complex timer management
+    if (!motorsState[name]) motorsState[name] = { gen: 0 };
     return motorsState[name];
+}
+
+// Single global packet sending system
+function startGlobalPacketTimer() {
+    if (globalPacketTimer) return; // Already running
+    
+    globalPacketTimer = setInterval(() => {
+        if (hasAnyActiveMotors()) {
+            sendCombinedPacket();
+        } else {
+            // No active motors, stop the timer
+            stopGlobalPacketTimer();
+        }
+    }, KEEPALIVE_INTERVAL);
+}
+
+function stopGlobalPacketTimer() {
+    if (globalPacketTimer) {
+        clearInterval(globalPacketTimer);
+        globalPacketTimer = null;
+    }
+}
+
+function hasAnyActiveMotors() {
+    return Object.keys(activeMotors.axisMotors).length > 0 || 
+           Object.keys(activeMotors.functionMotors).length > 0 || 
+           Object.keys(activeMotors.logicFunctions).length > 0;
 }
 function setWSStatus(connected) {
     wsConnected = connected;
@@ -152,7 +199,13 @@ function initWS() {
     }
 }
 
-window.addEventListener('DOMContentLoaded', function () { initWS(); });
+window.addEventListener('DOMContentLoaded', function () { 
+    loadKeepAliveConfig().then(() => {
+        initWS(); 
+    }).catch(err => {
+        initWS();
+    });
+});
 
 // Unified dispatcher: try WebSocket
 function dispatchCommand(action, payload, allowHttpFallback) {
@@ -186,8 +239,12 @@ async function sendStop(name) {
 function stopLocal(name) {
     const st = _ensureMotorState(name);
     st.gen += 1;
-    try { if (st.intervalId) { clearInterval(st.intervalId); st.intervalId = null; } } catch (e) { }
-    try { if (st.timeoutId) { clearTimeout(st.timeoutId); st.timeoutId = null; } } catch (e) { }
+    
+    // Cancel individual motor stop timer
+    if (motorStopTimers[name]) {
+        clearTimeout(motorStopTimers[name]);
+        delete motorStopTimers[name];
+    }
 }
 
 // Stop all motors: clear all state and send empty packet
@@ -205,14 +262,23 @@ async function stopAll() {
 
 function stopAllLocal() {
     try {
+        // Stop global timer
+        stopGlobalPacketTimer();
+        
+        // Clear all motor stop timers
+        for (let name in motorStopTimers) {
+            clearTimeout(motorStopTimers[name]);
+            delete motorStopTimers[name];
+        }
+        
+        // Bump generation for all motors to invalidate any pending operations
         for (let name in motorsState) {
             const st = motorsState[name];
             st.gen += 1;
-            try { if (st.intervalId) clearInterval(st.intervalId); } catch (e) { }
-            try { if (st.timeoutId) clearTimeout(st.timeoutId); } catch (e) { }
-            st.intervalId = null; st.timeoutId = null;
         }
-    } catch (e) { }
+    } catch (e) { 
+        console.error('Error in stopAllLocal:', e);
+    }
 }
 
 // Save minimum duty for a motor using POST only (scale 1-65)
@@ -243,11 +309,12 @@ async function saveMin(name) {
 function startMotor(name, dir, power, durationSec, useSlowMode = false) {
     const st = _ensureMotorState(name);
     
-    // cancel existing
+    // Cancel existing stop timer for this motor
     st.gen += 1;
-    try { if (st.intervalId) clearInterval(st.intervalId); } catch (e) { }
-    try { if (st.timeoutId) clearTimeout(st.timeoutId); } catch (e) { }
-    st.intervalId = null; st.timeoutId = null;
+    if (motorStopTimers[name]) {
+        clearTimeout(motorStopTimers[name]);
+        delete motorStopTimers[name];
+    }
 
     const myGen = st.gen;
     
@@ -272,32 +339,16 @@ function startMotor(name, dir, power, durationSec, useSlowMode = false) {
         }
     }
     
-    // send once immediately with all active motors
+    // Send immediately and start global timer
     sendCombinedPacketImmediate();
+    startGlobalPacketTimer();
 
-    // schedule periodic keepalive updates for all active motors
-    st.intervalId = setInterval(function () {
-        if (st.gen !== myGen) {
-            try { if (st.intervalId) clearInterval(st.intervalId); } catch (e) { }
-            st.intervalId = null;
-            return;
-        }
-        sendCombinedPacket(); // Use normal send for keep-alive checks
-    }, 50);
-
-    // schedule stop after duration if provided
+    // Schedule stop after duration if provided
     if (durationSec && durationSec > 0) {
-        st.timeoutId = setTimeout(function () {
-            if (st.gen !== myGen) {
-                st.timeoutId = null;
-                return;
-            }
-            // ensure timers cleared and send stop
-            try { if (st.intervalId) clearInterval(st.intervalId); } catch (e) { }
-            st.intervalId = null;
-            st.timeoutId = null;
-            // Prevent further keepalives by bumping gen
-            st.gen += 1;
+        motorStopTimers[name] = setTimeout(function () {
+            if (st.gen !== myGen) return; // Check if this timer is still valid
+            
+            // Remove motor and send stop
             sendStop(name);
         }, durationSec * 1000);
     }
@@ -306,15 +357,6 @@ function startMotor(name, dir, power, durationSec, useSlowMode = false) {
 // Send combined control packet for testing (includes all currently active motors)
 function sendCombinedPacket(forceKeepAlive = false) {
     const now = Date.now();
-    
-    // Debug timing - log interval since last packet
-    if (window.lastPacketTime) {
-        const interval = now - window.lastPacketTime;
-        if (interval > 200) { // Log if interval is longer than expected
-            console.log(`TIMING WARNING: Packet interval ${interval}ms (target: 150ms)`);
-        }
-    }
-    window.lastPacketTime = now;
     
     let packet = {
         axisMotors: { ...activeMotors.axisMotors },
@@ -327,19 +369,15 @@ function sendCombinedPacket(forceKeepAlive = false) {
     // Check if packet has changed from last sent
     let hasChanged = !lastSentPacket || (packetString !== lastSentPacket);
     
-    // Increment keep-alive counter
-    keepAliveCounter++;
-    
-    // Send if: packet changed, forced keep-alive, or counter reached keep-alive interval
-    let shouldSend = hasChanged || forceKeepAlive || (keepAliveCounter >= KEEPALIVE_INTERVAL);
+    // For testing page, always send to maintain consistent timing
+    // This ensures watchdog doesn't timeout due to packet gaps
+    let shouldSend = hasChanged || forceKeepAlive || true; // Always send for testing
     
     if (shouldSend) {
         if (ws && ws.readyState === 1) {
             try {
                 ws.send(packetString);
                 lastSentPacket = packetString;
-                keepAliveCounter = 0; // Reset counter after sending
-                console.log(`PACKET SENT: ${packetString.length} bytes, interval: ${now - (window.lastSentTime || now)}ms`);
                 window.lastSentTime = now;
             } catch (e) {
                 console.error('WebSocket send error:', e);
